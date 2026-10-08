@@ -36,9 +36,9 @@ The product backlog uses MoSCoW prioritization to keep the project scope small a
 
 | Category                  | Definition                               | DocHub Usage                                                                               |
 | ------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Must Have                 | Required for the core application        | Article CRUD, REST APIs, React frontend, categories, tags                                  |
-| Should Have               | Required for the complete course project | Authentication, RBAC, security scopes, draft/review/publish workflow                       |
-| Could Have                | Optional improvements if time permits    | Basic user profile, article archiving                                                      |
+| Must Have                 | Required for the core application        | Article CRUD, REST APIs, React frontend, MongoDB, categories, tags                         |
+| Should Have               | Required for the complete course project | Authentication, RBAC, security scopes, user profile, draft/review/publish workflow         |
+| Could Have                | Optional improvements if time permits    | Article archiving                                                                          |
 | Won't Have (this release) | Explicitly outside the project scope     | AI, real-time collaboration, mobile application, advanced analytics, external integrations |
 
 ## Target Users
@@ -49,7 +49,7 @@ The system supports three main user types:
 
 * **Reader / Intern** — reads and searches published documentation.
 * **Contributor / Developer** — creates and manages their own documentation drafts.
-* **Editor / Admin** — reviews documentation and controls publishing and user roles.
+* **Editor / Admin** — reviews documentation, controls publishing, and manages user roles.
 
 ## User Personas
 
@@ -69,21 +69,28 @@ The system supports three main user types:
 6. An Editor reviews the submitted article.
 7. The Editor publishes the article.
 8. Readers can search, filter, and read the published article.
+9. An authenticated user can access and update their basic profile information.
 
 ## Feature List
 
-| Feature Group   | Core Features                                     | Release    |
-| --------------- | ------------------------------------------------- | ---------- |
-| Authentication  | Register and login                                | Beta       |
-| Documentation   | Create, view, edit, and delete articles           | MVP        |
-| Markdown        | Write documentation using Markdown and preview it | MVP        |
-| Organization    | Categories and tags                               | MVP        |
-| Search          | Search and filter documentation                   | MVP        |
-| REST API        | Article and authentication API endpoints          | MVP / Beta |
-| RBAC            | Reader, Contributor, and Editor roles             | Beta       |
-| Security Scopes | Permission-based access to protected operations   | Beta       |
-| Workflow        | Draft, submit, review, and publish                | Beta       |
-| User Management | Manage user roles                                 | Beta       |
+| Feature Group   | Core Features                                     | Release |
+| --------------- | ------------------------------------------------- | ------- |
+| Frontend        | React + TypeScript interface                      | MVP     |
+| Backend         | FastAPI + Python REST backend                     | MVP     |
+| Database        | MongoDB persistence                               | MVP     |
+| Documentation   | Create, view, edit, and delete articles           | MVP     |
+| Markdown        | Write documentation using Markdown and preview it | MVP     |
+| Organization    | Categories and tags                               | MVP     |
+| Search          | Search and filter documentation                   | MVP     |
+| REST API        | Documentation REST API endpoints                  | MVP     |
+| Authentication  | User registration and login                       | Beta    |
+| JWT             | JWT-based authentication                          | Beta    |
+| User Profile    | View and update basic profile information         | Beta    |
+| RBAC            | Reader, Contributor, and Editor roles             | Beta    |
+| Security Scopes | Permission-based access to protected operations   | Beta    |
+| Workflow        | Draft, submit, review, and publish                | Beta    |
+| User Management | Manage user roles                                 | Beta    |
+| Deployment      | Deploy the completed application                  | Beta    |
 
 ## Functional Requirements
 
@@ -114,7 +121,8 @@ The system supports three main user types:
 | FR-023         | Editors shall be able to review submitted articles.                                                 | Beta    |
 | FR-024         | Editors shall be able to publish approved articles.                                                 | Beta    |
 | FR-025         | Editors shall be able to manage user roles.                                                         | Beta    |
-| FR-026         | The system shall reject requests when the authenticated user does not have the required permission. | Beta    |
+| FR-026         | The system shall allow authenticated users to view and update their basic profile information.      | Beta    |
+| FR-027         | The system shall reject requests when the authenticated user does not have the required permission. | Beta    |
 
 ## Role-Based Access Control
 
@@ -160,6 +168,7 @@ The application will use security scopes to provide more granular control over p
 | Core Article CRUD    | Create, read, update, and delete operations work successfully              |
 | REST API Integration | All core documentation operations are accessible through FastAPI endpoints |
 | Authentication       | Users can register and log in successfully                                 |
+| User Profile         | Authenticated users can view and update their basic profile information    |
 | RBAC                 | All three user roles have distinct permissions                             |
 | Security Scopes      | Protected operations enforce the required scopes                           |
 | Workflow             | Draft → Review → Publish workflow works successfully                       |
@@ -170,13 +179,14 @@ The application will use security scopes to provide more granular control over p
 
 ### MVP - Phase 1
 
-The MVP focuses on the basic documentation platform and demonstrates the core React, TypeScript, FastAPI, and REST API integration.
+The MVP focuses on the basic documentation platform and demonstrates the core React, TypeScript, FastAPI, MongoDB, and REST API integration.
 
 The MVP will include:
 
 * React + TypeScript frontend
 * FastAPI backend
 * REST API
+* MongoDB database
 * Documentation article CRUD
 * Markdown editor and preview
 * Categories
@@ -185,10 +195,11 @@ The MVP will include:
 * Filtering
 * Basic frontend-backend integration
 * Basic data persistence
+* Local running environment
 
 ### Beta - Phase 2
 
-The Beta release adds the security and access-control functionality required by the course.
+The Beta release adds the security, user management, and deployment functionality required by the course.
 
 The Beta will include:
 
@@ -196,6 +207,7 @@ The Beta will include:
 * User login
 * JWT authentication
 * Authentication-protected endpoints
+* User profile dashboard
 * Reader / Contributor / Editor roles
 * RBAC
 * Security scopes / permissions
@@ -203,13 +215,14 @@ The Beta will include:
 * Article review
 * Article publishing
 * User role management
+* Deployment
 
 ## Roadmap Alignment
 
-| Phase | Main Focus                  | Features                                                                           |
-| ----- | --------------------------- | ---------------------------------------------------------------------------------- |
-| MVP   | Core application            | Articles, Markdown, categories, tags, search, filtering, REST APIs, React frontend |
-| Beta  | Security and access control | Authentication, JWT, RBAC, security scopes, workflow, user management              |
+| Phase | Main Focus                      | Features                                                                                                  |
+| ----- | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| MVP   | Core application                | React, TypeScript, FastAPI, MongoDB, articles, Markdown, categories, tags, search, filtering, REST APIs   |
+| Beta  | Security, users, and deployment | Authentication, JWT, user profile dashboard, RBAC, security scopes, workflow, user management, deployment |
 
 The project will prioritize completing the MVP and Beta requirements before considering optional features.
 
@@ -219,8 +232,8 @@ The project will prioritize completing the MVP and Beta requirements before cons
 | ---------------------------- | ---------------- | ------ |
 | React + TypeScript           | Frontend         | Low    |
 | FastAPI + Python             | Backend          | Low    |
+| MongoDB                      | Data persistence | Low    |
 | REST API                     | Architecture     | Low    |
-| Database                     | Data persistence | Low    |
 | JWT Authentication           | Security         | Medium |
 | RBAC and Security Scopes     | Security         | Medium |
 | Frontend-Backend Integration | Integration      | Medium |
@@ -236,7 +249,7 @@ The project will prioritize completing the MVP and Beta requirements before cons
 | Authentication   | OAuth2 Password Flow + JWT |
 | Authorization    | RBAC + Security Scopes     |
 | Documentation    | Markdown                   |
-| Database         | SQLite                     |
+| Database         | MongoDB (NoSQL)            |
 | Version Control  | Git + GitHub               |
 
 ## Out of Scope
@@ -264,15 +277,18 @@ DocHub will be considered complete when the following requirements are demonstra
 
 1. The React + TypeScript frontend communicates successfully with the FastAPI backend.
 2. Core documentation operations are exposed through REST APIs.
-3. Users can create, view, edit, and delete documentation according to their permissions.
-4. Users can search and filter documentation.
-5. Users can authenticate using the application.
-6. The system implements Reader, Contributor, and Editor roles.
-7. RBAC restricts functionality according to the user's role.
-8. Security scopes provide granular permission control.
-9. Contributors can submit documentation for review.
-10. Editors can review and publish documentation.
-11. Unauthorized users cannot access protected operations.
+3. MongoDB provides persistent application data storage.
+4. Users can create, view, edit, and delete documentation according to their permissions.
+5. Users can search and filter documentation.
+6. Users can register and authenticate using the application.
+7. Authenticated users can view and update their basic profile information.
+8. The system implements Reader, Contributor, and Editor roles.
+9. RBAC restricts functionality according to the user's role.
+10. Security scopes provide granular permission control.
+11. Contributors can submit documentation for review.
+12. Editors can review and publish documentation.
+13. Unauthorized users cannot access protected operations.
+14. The completed Beta application can be deployed.
 
 ## Traceability
 
