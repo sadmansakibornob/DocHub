@@ -1,0 +1,35 @@
+# Copilot CLI local session state artifacts
+.copilot/session-state/
+
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Python backend
+backend/.venv/
+
+# Ignore all Python bytecode caches and compiled files anywhere in the repo
+# - folder __pycache__ and compiled extensions
+**/__pycache__/
+__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+*.pyc
+*.pyo
+
+# packaging/build artifacts
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+
+# CDK
+cdk.out/
+infra/cdk.out/
+infra/cdk-outputs.json
