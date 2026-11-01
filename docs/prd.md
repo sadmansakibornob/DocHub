@@ -36,7 +36,7 @@ The product backlog uses MoSCoW prioritization to keep the project scope small a
 
 | Category                  | Definition                               | DocHub Usage                                                                               |
 | ------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Must Have                 | Required for the core application        | Article CRUD, REST APIs, React frontend, MongoDB, categories, tags                         |
+| Must Have                 | Required for the core application        | Article CRUD, REST APIs, React frontend, Supabase           , tags                         |
 | Should Have               | Required for the complete course project | Authentication, RBAC, security scopes, user profile, draft/review/publish workflow         |
 | Could Have                | Optional improvements if time permits    | Article archiving                                                                          |
 | Won't Have (this release) | Explicitly outside the project scope     | AI, real-time collaboration, mobile application, advanced analytics, external integrations |
@@ -77,7 +77,7 @@ The system supports three main user types:
 | --------------- | ------------------------------------------------- | ------- |
 | Frontend        | React + TypeScript interface                      | MVP     |
 | Backend         | FastAPI + Python REST backend                     | MVP     |
-| Database        | MongoDB persistence                               | MVP     |
+| Database        | Supabase                                          | MVP     |
 | Documentation   | Create, view, edit, and delete articles           | MVP     |
 | Markdown        | Write documentation using Markdown and preview it | MVP     |
 | Organization    | Categories and tags                               | MVP     |
@@ -179,15 +179,14 @@ The application will use security scopes to provide more granular control over p
 
 ### MVP - Phase 1
 
-The MVP focuses on the basic documentation platform and demonstrates the core React, TypeScript, FastAPI, MongoDB, and REST API integration.
+The MVP focuses on the basic documentation platform and demonstrates the core React, TypeScript, FastAPI, Supabase           PI integration.
 
 The MVP will include:
 
 * React + TypeScript frontend
 * FastAPI backend
 * REST API
-* MongoDB database
-* Documentation article CRUD
+* Supabase           Documentation article CRUD
 * Markdown editor and preview
 * Categories
 * Tags
@@ -221,7 +220,7 @@ The Beta will include:
 
 | Phase | Main Focus                      | Features                                                                                                  |
 | ----- | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| MVP   | Core application                | React, TypeScript, FastAPI, MongoDB, articles, Markdown, categories, tags, search, filtering, REST APIs   |
+| MVP   | Core application                | React, TypeScript, FastAPI, Supabase           Markdown, categories, tags, search, filtering, REST APIs   |
 | Beta  | Security, users, and deployment | Authentication, JWT, user profile dashboard, RBAC, security scopes, workflow, user management, deployment |
 
 The project will prioritize completing the MVP and Beta requirements before considering optional features.
@@ -232,7 +231,7 @@ The project will prioritize completing the MVP and Beta requirements before cons
 | ---------------------------- | ---------------- | ------ |
 | React + TypeScript           | Frontend         | Low    |
 | FastAPI + Python             | Backend          | Low    |
-| MongoDB                      | Data persistence | Low    |
+| Supabase                     | Data persistence | Low    |
 | REST API                     | Architecture     | Low    |
 | JWT Authentication           | Security         | Medium |
 | RBAC and Security Scopes     | Security         | Medium |
@@ -249,7 +248,7 @@ The project will prioritize completing the MVP and Beta requirements before cons
 | Authentication   | OAuth2 Password Flow + JWT |
 | Authorization    | RBAC + Security Scopes     |
 | Documentation    | Markdown                   |
-| Database         | MongoDB (NoSQL)            |
+| Database         | Supabase                   |
 | Version Control  | Git + GitHub               |
 
 ## Out of Scope
@@ -277,7 +276,7 @@ DocHub will be considered complete when the following requirements are demonstra
 
 1. The React + TypeScript frontend communicates successfully with the FastAPI backend.
 2. Core documentation operations are exposed through REST APIs.
-3. MongoDB provides persistent application data storage.
+3. Supabase           rsistent application data storage.
 4. Users can create, view, edit, and delete documentation according to their permissions.
 5. Users can search and filter documentation.
 6. Users can register and authenticate using the application.
