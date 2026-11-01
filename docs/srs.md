@@ -8,7 +8,7 @@ This Software Requirements Specification (SRS) defines the functional and non-fu
 
 The purpose of DocHub is to provide a centralized platform where users can create, manage, organize, review, publish, search, and read technical documentation.
 
-The system is designed to demonstrate the use of React.js with TypeScript, FastAPI with Python, REST APIs, MongoDB, authentication, authorization, Role-Based Access Control (RBAC), and security scopes.
+The system is designed to demonstrate the use of React.js with TypeScript, FastAPI with Python, REST APIs, Supabase, authentication, authorization, Role-Based Access Control (RBAC), and security scopes.
 
 ### 1.2 Scope
 
@@ -17,7 +17,7 @@ DocHub will provide a web-based documentation platform consisting of:
 * A React + TypeScript frontend.
 * A FastAPI + Python backend.
 * REST APIs for frontend-backend communication.
-* MongoDB for persistent data storage.
+* Supabase for persistent data storage.
 * Documentation article CRUD operations.
 * Markdown editing and preview.
 * Categories and tags.
@@ -51,7 +51,7 @@ The system will be developed in two releases.
 | MVP      | Minimum Viable Product                                            |
 | Beta     | Extended release containing security and user-management features |
 | Markdown | Lightweight markup language used for documentation                |
-| MongoDB  | NoSQL document-oriented database                                  |
+| Supabase  | NoSQL document-oriented database                                  |
 
 ### 1.4 References
 
@@ -86,11 +86,11 @@ The system consists of:
 
 3. **Database**
 
-   * MongoDB
+   * Supabase
 
 The overall architecture is:
 
-**React + TypeScript → FastAPI REST API → MongoDB**
+**React + TypeScript → FastAPI REST API → Supabase**
 
 The frontend is responsible for user interaction and presentation, while the backend handles business logic, authentication, authorization, validation, and database operations.
 
@@ -104,7 +104,7 @@ The system shall provide the following major functions:
 * Create documentation articles.
 * Edit documentation articles.
 * Delete documentation articles.
-* Store documentation in MongoDB.
+* Store documentation in Supabase.
 * Write documentation using Markdown.
 * Preview Markdown content.
 * Assign categories to articles.
@@ -188,7 +188,7 @@ Permissions:
 
 ### Database
 
-* MongoDB.
+* Supabase.
 
 ### Development Environment
 
@@ -202,7 +202,7 @@ Permissions:
 * The application must use React.js with TypeScript.
 * The backend must use FastAPI with Python.
 * Frontend-backend communication must use REST APIs.
-* MongoDB must be used for persistent data storage.
+* Supabase must be used for persistent data storage.
 * Authentication must use OAuth2 Password Flow with JWT.
 * Authorization must use RBAC and security scopes.
 * The project must remain small enough to complete within the course timeline.
@@ -211,7 +211,7 @@ Permissions:
 ## 2.6 Assumptions
 
 * Users have access to a modern web browser.
-* MongoDB is available during development and deployment.
+* Supabase is available during development and deployment.
 * Users have valid credentials when authentication is enabled.
 * The application will initially target a small internal team.
 * Internet access is available for the deployed Beta application.
@@ -230,7 +230,7 @@ Permissions:
 | FR-003 | The system shall allow users to view individual documentation articles. | MVP     |
 | FR-004 | The system shall allow users to edit documentation articles.            | MVP     |
 | FR-005 | The system shall allow users to delete documentation articles.          | MVP     |
-| FR-006 | The system shall store documentation articles in MongoDB.               | MVP     |
+| FR-006 | The system shall store documentation articles in Supabase.               | MVP     |
 
 ## 3.2 Markdown
 
@@ -372,7 +372,7 @@ The documentation workflow shall follow:
 
 # 5. Database Requirements
 
-DocHub shall use MongoDB as its database.
+DocHub shall use Supabase as its database.
 
 The database shall contain collections for the primary application entities.
 
@@ -385,8 +385,6 @@ Stores:
 * Email / username
 * Password hash
 * Assigned role
-* Profile information
-* Account metadata
 
 ### Articles Collection
 
@@ -528,7 +526,7 @@ The MVP shall demonstrate:
 
 * React + TypeScript frontend.
 * FastAPI backend.
-* MongoDB database.
+* Supabase database.
 * REST APIs.
 * Documentation CRUD.
 * Markdown editor and preview.
@@ -567,7 +565,7 @@ The system shall be considered acceptable when:
 
 1. The React + TypeScript frontend successfully communicates with FastAPI.
 2. Core documentation operations work through REST APIs.
-3. MongoDB successfully stores application data.
+3. Supabase successfully stores application data.
 4. Users can create, view, edit, and delete documentation in the MVP.
 5. Markdown content can be created and previewed.
 6. Categories and tags can be assigned to articles.
@@ -649,5 +647,141 @@ Requirements shall be verified using:
 * Database verification.
 * Integration testing.
 * Acceptance testing.
+
+# 11. Use Cases
+
+This section describes the main interactions between DocHub users and the system. The use cases are organized according to the MVP and Beta releases defined in this SRS.
+
+## UC-01 Register
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Guest User |
+| Preconditions | User is not authenticated; email is not already registered. |
+| Primary Flow | 1) User opens registration page 2) Enters name, email, and password 3) Submits form 4) System validates information and hashes password 5) Account is created in Supabase 6) Success response returned. |
+| Alternative Flow | A1: Email already exists → return conflict error. A2: Invalid registration data → return validation error. |
+| Post Conditions | User account persisted; user can log in. |
+| Related FR | FR-018, FR-022 |
+
+## UC-02 Login
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Registered User |
+| Preconditions | User has an existing account. |
+| Primary Flow | 1) User opens login page 2) Enters email and password 3) System verifies credentials 4) JWT access token is generated 5) Token is returned to frontend 6) User accesses authenticated features. |
+| Alternative Flow | A1: Invalid credentials → return `401 Unauthorized`. A2: Invalid or expired JWT → deny access to protected endpoints. |
+| Post Conditions | User is authenticated and can access authorized features. |
+| Related FR | FR-019, FR-020, FR-021, FR-022 |
+
+## UC-03 View Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Reader / Intern |
+| Preconditions | DocHub application is accessible; published articles exist. |
+| Primary Flow | 1) User opens documentation page 2) System requests published articles 3) Backend retrieves articles from Supabase 4) Articles are returned 5) User selects an article 6) Full documentation is displayed. |
+| Alternative Flow | A1: No articles available → display empty-state message. A2: Article not found → return `404 Not Found`. |
+| Post Conditions | Selected documentation is displayed to the user. |
+| Related FR | FR-001, FR-003 |
+
+## UC-04 Create Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Contributor / Developer |
+| Preconditions | User has permission to create articles. |
+| Primary Flow | 1) User clicks Create Article 2) Enters title and Markdown content 3) Assigns category and tags 4) Previews article 5) Submits form 6) Backend validates information 7) Article is stored in Supabase 8) Success response returned. |
+| Alternative Flow | A1: Missing required fields → validation error. A2: Invalid category or tag reference → validation error. A3: Database failure → return appropriate server error. |
+| Post Conditions | New article stored in Supabase. |
+| Related FR | FR-002, FR-006, FR-007, FR-008, FR-009, FR-010 |
+
+## UC-05 Edit Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Contributor / Developer |
+| Preconditions | Article exists; in Beta, user owns the draft or has the required permission. |
+| Primary Flow | 1) User opens an article 2) Selects Edit 3) Updates title, content, category, or tags 4) Saves changes 5) Backend validates request and permissions 6) Supabase article is updated 7) Updated article is returned. |
+| Alternative Flow | A1: Article not found → return `404 Not Found`. A2: Unauthorized modification → return `403 Forbidden`. A3: Invalid data → return validation error. |
+| Post Conditions | Article updated with the latest information. |
+| Related FR | FR-004 |
+
+## UC-06 Delete Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Contributor / Developer |
+| Preconditions | Article exists; in Beta, user owns the draft or has the required permission. |
+| Primary Flow | 1) User selects an article 2) Clicks Delete 3) Confirms deletion 4) Frontend sends DELETE request 5) Backend validates permission 6) Article is deleted from Supabase 7) Success response returned. |
+| Alternative Flow | A1: User cancels deletion → no changes occur. A2: Article not found → return `404 Not Found`. A3: Unauthorized deletion → return `403 Forbidden`. |
+| Post Conditions | Article removed from the database. |
+| Related FR | FR-005 |
+
+## UC-07 Search Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Reader / Intern |
+| Preconditions | Documentation articles exist. |
+| Primary Flow | 1) User enters a keyword 2) Frontend sends search request 3) Backend searches article titles and content 4) Matching articles are returned 5) Frontend displays search results. |
+| Alternative Flow | A1: Empty query → display default article list. A2: No matching articles → display no-results message. |
+| Post Conditions | Matching documentation articles are displayed. |
+| Related FR | FR-013, FR-014 |
+
+## UC-08 Filter Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Reader / Intern |
+| Preconditions | Documentation articles and category or tag information exist. |
+| Primary Flow | 1) User opens documentation listing 2) Selects a category or tag 3) Frontend sends filtering parameters 4) Backend queries Supabase 5) Matching articles are returned 6) Filtered results are displayed. |
+| Alternative Flow | A1: Invalid filter value → return `400 Bad Request`. A2: No matching articles → display empty-state message. |
+| Post Conditions | User sees documentation matching the selected filters. |
+| Related FR | FR-011, FR-012 |
+
+## UC-09 Manage User Profile
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Authenticated User |
+| Preconditions | User is logged in with a valid JWT. |
+| Primary Flow | 1) User opens profile dashboard 2) System validates JWT 3) Backend retrieves profile information 4) Frontend displays name, email, and assigned role 5) User updates permitted information 6) Backend validates and saves changes 7) Updated profile is displayed. |
+| Alternative Flow | A1: Invalid or expired token → return `401 Unauthorized`. A2: Invalid profile information → return validation error. |
+| Post Conditions | User profile displayed or updated successfully. |
+| Related FR | FR-023, FR-024, FR-025, FR-026 |
+
+## UC-10 Submit Article for Review
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Contributor / Developer |
+| Preconditions | User is authenticated; an article draft exists. |
+| Primary Flow | 1) Contributor opens a draft 2) Reviews article content 3) Selects Submit for Review 4) Backend validates permissions 5) Article status changes from Draft to Submitted 6) Updated status is stored in Supabase 7) Success response returned. |
+| Alternative Flow | A1: Article not found → return `404 Not Found`. A2: Insufficient permissions → return `403 Forbidden`. |
+| Post Conditions | Article is marked as Submitted and available for editorial review. |
+| Related FR | FR-029, FR-033, FR-034 |
+
+## UC-11 Review and Publish Article
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Editor / Admin |
+| Preconditions | Editor is authenticated; submitted articles exist; required security scopes are available. |
+| Primary Flow | 1) Editor opens review dashboard 2) System retrieves submitted articles 3) Editor selects an article 4) Reviews its content 5) Approves article for publication 6) Backend validates Editor role and `articles:publish` scope 7) Article status changes to Published 8) Updated article is stored in Supabase 9) Article becomes available to Readers. |
+| Alternative Flow | A1: Article not found → return `404 Not Found`. A2: Insufficient permissions → return `403 Forbidden`. A3: Publishing operation fails → article remains unchanged. |
+| Post Conditions | Article is published and available to Readers. |
+| Related FR | FR-030, FR-031, FR-035, FR-036 |
+
+## UC-12 Manage User Roles
+
+| **Field** | **Details** |
+|---|---|
+| Actor | Editor / Admin |
+| Preconditions | Editor is authenticated and has the `users:manage` security scope. |
+| Primary Flow | 1) Editor opens user management 2) System retrieves registered users 3) Editor selects a user 4) Assigns or changes the user's role 5) Backend validates permission and requested role 6) User role is updated in Supabase 7) Success response returned. |
+| Alternative Flow | A1: User not found → return `404 Not Found`. A2: Insufficient permissions → return `403 Forbidden`. A3: Invalid role → return validation error. |
+| Post Conditions | User's assigned role is updated and future authorization checks use the updated role. |
+| Related FR | FR-027, FR-028, FR-032 |
 
 Each requirement shall be considered verified when the expected system behavior can be demonstrated and the corresponding test case passes.

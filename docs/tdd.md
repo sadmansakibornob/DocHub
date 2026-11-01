@@ -1,129 +1,276 @@
-# DocHub - Technical Design Document (TDD)
+# DocHub – Technical Design Document (TDD)
 
-## Technical Stack
+## 1. Technical Stack
 
-| Layer         | Technology             |
-| ------------- | ---------------------- |
-| Frontend      | React + TypeScript     |
-| Backend       | Python FastAPI         |
-| Database      | MongoDB (NoSQL)        |
-| Auth          | OAuth2 + JWT           |
-| Authorization | RBAC + Security Scopes |
-| API           | REST                   |
+| Layer | Technology | Purpose |
+|---|---|---|
+| Frontend | React.js | User interface |
+| Frontend Language | TypeScript | Type-safe frontend development |
+| Build Tool | Vite | Frontend development and production build |
+| Backend | Python | Backend application logic |
+| Backend Framework | FastAPI | REST API development |
+| Data Validation | Pydantic | Request and response validation |
+| Database | Supabase PostgreSQL | Persistent relational data storage |
+| API Communication | REST over HTTP/JSON | Frontend-backend communication |
+| Frontend Hosting | Vercel | Build and host the frontend application |
+| Authentication (Beta) | OAuth2 Password Flow and JWT | User authentication |
+| Authorization (Beta) | RBAC and Security Scopes | Permission control |
+| Version Control | Git and GitHub | Source control and collaboration |
 
-## Backend Design by Layer
+Supabase provides the PostgreSQL database, while Vercel is used to deploy the frontend. FastAPI remains the application backend and exposes the REST API.
 
-### 1. Controller Layer
+## 2. Architecture
 
-* FastAPI routers per application domain:
+DocHub follows a three-tier architecture:
 
-  * `/auth`
-  * `/articles`
-  * `/categories`
-  * `/tags`
-  * `/users`
-* Responsibilities: request parsing, validation, response mapping, status codes.
+1. **Frontend:** React and TypeScript provide the user interface for viewing, creating, editing, searching, and filtering documentation. The frontend is deployed through Vercel.
+2. **Backend:** FastAPI exposes REST endpoints, validates requests, applies application logic, and communicates with Supabase PostgreSQL.
+3. **Database:** Supabase PostgreSQL stores users, articles, categories, and tags.
 
-### 2. Service Layer
+### 2.1 Architecture Diagram
 
-* Encapsulates business rules:
+```mermaid
+flowchart TD
+    U[User] --> FE[React + TypeScript Frontend - Vercel]
+    FE -->|HTTP / JSON| API[FastAPI REST API]
+    API -->|Database Connection| DB[(Supabase PostgreSQL)]
+    DB --> API
+    API --> FE
+```
 
-  * Article CRUD operations
-  * Draft and publishing workflow
-  * Role and permission validation
-  * Article ownership validation
-  * Search and filtering logic
+The frontend communicates with FastAPI through REST APIs. The backend handles request validation, application logic, and database operations. In the Beta release, authentication and authorization are also handled by the backend using OAuth2, JWT, RBAC, and security scopes.
 
-### 3. Repository Layer
+## 3. Project Structure
 
-* Uses MongoDB data-access repositories.
-* Responsibilities:
+The following is the proposed project organization. File names may be adjusted to match the implementation.
 
-  * CRUD operations
-  * Database queries
-  * User and role persistence
-  * Article, category, and tag data management
+```text
+DocHub/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   ├── types/
+│   │   └── App.tsx
+│   ├── public/
+│   └── package.json
+│
+├── backend/
+│   ├── app/
+│   │   ├── routes/
+│   │   │   └── article.py
+│   │   ├── schemas/
+│   │   │   └── article.py
+│   │   ├── config.py
+│   │   └── main.py
+│   ├── .env
+│   └── requirements.txt
+│
+└── README.md
+```
 
-### 4. Authentication Layer
+### 3.1 Frontend Directories
 
-* OAuth2 password flow with JWT access tokens.
-* Password hashing with bcrypt/argon2.
-* Dependency-based authentication guards for protected routes.
+- `components/`: Reusable interface components.
+- `pages/`: Application pages such as article listing, article details, and article editor.
+- `services/`: Functions for communicating with the backend API.
+- `types/`: TypeScript types and interfaces.
 
-### 5. Authorization Layer
+### 3.2 Backend Directories
 
-* Role-Based Access Control for:
+- `routes/`: FastAPI route definitions and API endpoints.
+- `schemas/`: Pydantic request and response schemas.
+- `config.py`: Application settings and environment configuration.
+- `main.py`: FastAPI application entry point.
 
-  * Reader / Intern
-  * Contributor / Developer
-  * Editor / Admin
-* Security scopes:
+## 4. Data Model
 
-  * `articles:read`
-  * `articles:create`
-  * `articles:update`
-  * `articles:delete`
-  * `articles:review`
-  * `articles:publish`
-  * `users:manage`
+DocHub uses Supabase PostgreSQL tables to store application data. The relational model uses primary keys and foreign keys to connect users, articles, categories, and tags.
 
-### 6. Error Handling
+### 4.1 Profiles Table
 
-* Standard HTTP status codes and JSON error responses.
-* Central exception handlers for validation, authentication, authorization, and database errors.
+The profiles table stores application-level user information.
 
-### 7. Logging
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Unique user identifier |
+| `name` | VARCHAR | User's name |
+| `email` | VARCHAR | User's email address |
+| `password` | TEXt | User's password |
+| `role` | VARCHAR | Reader, Contributor, or Editor (Beta) |
 
-* Application logs for important system events.
-* Key events: authentication failures, article updates, article submissions, publishing actions, unauthorized access attempts, and server errors.
 
-### 8. Article Workflow
+### 4.2 Articles Table
 
-* Documentation lifecycle:
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Unique article identifier |
+| `title` | VARCHAR | Article title |
+| `content` | TEXT | Markdown article content |
+| `category_id` | UUID | Foreign key referencing a category |
+| `author_id` | UUID | Foreign key referencing a profile |
+| `status` | VARCHAR | Draft, pending review, or published |
+| `created_at` | TIMESTAMP | Article creation time |
+| `updated_at` | TIMESTAMP | Last update time |
 
-  * Draft
-  * Submitted
-  * Published
-* Contributors manage their own drafts.
-* Editors review and publish submitted articles.
+### 4.3 Categories Table
 
-### 9. Security
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Unique category identifier |
+| `name` | VARCHAR | Category name |
+| `description` | TEXT | Category description |
 
-* Secure password hashing.
-* JWT-based authentication.
-* Backend-enforced RBAC.
-* Security scope validation for protected operations.
-* Authorization checks for article ownership and user management.
+### 4.4 Tags Table
 
-### 10. Integration Strategy
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | Unique tag identifier |
+| `name` | VARCHAR | Tag name |
 
-1. React frontend communicates with FastAPI through REST APIs.
-2. FastAPI validates requests and authentication.
-3. Service layer applies business rules.
-4. Repository layer communicates with MongoDB.
-5. FastAPI returns JSON responses to the frontend.
+### 4.5 Article_Tags Table
 
-## Frontend Design Highlights
+This junction table implements the many-to-many relationship between articles and tags.
 
-* Type-safe React components and API types.
-* Centralized API client for FastAPI communication.
-* Authentication state management.
-* Article list, search, filtering, editor, and preview interfaces.
-* Role-based UI visibility.
-* API error handling and loading states.
+| Field | Type | Description |
+|---|---|---|
+| `article_id` | UUID | Foreign key referencing an article |
+| `tag_id` | UUID | Foreign key referencing a tag |
 
-## Design-to-Requirement Mapping
+The combination of `article_id` and `tag_id` should be unique.
 
-| Design Area              | Requirement IDs           |
-| ------------------------ | ------------------------- |
-| Article module           | FR-001..FR-011            |
-| REST API and integration | FR-012..FR-013            |
-| Authentication module    | FR-014..FR-017            |
-| RBAC and security scopes | FR-018..FR-020, FR-026    |
-| Article workflow         | FR-021..FR-024            |
-| User management          | FR-025                    |
-| Frontend architecture    | NFR-001, NFR-003, NFR-010 |
-| Backend architecture     | NFR-002, NFR-004          |
-| Security architecture    | NFR-005..NFR-008          |
-| Error handling           | NFR-009..NFR-010          |
-| Database architecture    | MongoDB                   |
+### 4.6 Relationships
+
+- A profile can create multiple articles.
+- Each article has one author.
+- An article can belong to one category.
+- An article can have multiple tags.
+- A tag can be assigned to multiple articles.
+- `author_id` references `profiles.id`.
+- `category_id` references `categories.id`.
+- `article_id` and `tag_id` in `article_tags` reference `articles.id` and `tags.id`.
+
+## 5. API Design
+
+The FastAPI backend exposes REST APIs using JSON request and response bodies. The API is organized by resource. Supabase is used as the database, while FastAPI handles application logic and database operations.
+
+### 5.1 Article and Resource Endpoints
+
+| Method | Endpoint | Description | Release |
+|---|---|---|---|
+| `GET` | `/api/articles` | Get the article list | MVP |
+| `POST` | `/api/articles` | Create an article | MVP |
+| `GET` | `/api/articles/{article_id}` | Get one article | MVP |
+| `PUT` | `/api/articles/{article_id}` | Update an article | MVP |
+| `DELETE` | `/api/articles/{article_id}` | Delete an article | MVP |
+| `GET` | `/api/categories` | Get categories | MVP |
+| `GET` | `/api/tags` | Get tags | MVP |
+
+### 5.2 Authentication and User Endpoints
+
+| Method | Endpoint | Description | Release |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | Register a user | Beta |
+| `POST` | `/api/auth/login` | Authenticate a user and issue a JWT | Beta |
+| `GET` | `/api/users/me` | Get the current user's profile | Beta |
+| `PATCH` | `/api/users/me` | Update permitted profile information | Beta |
+
+### 5.3 Article Workflow and Role Endpoints
+
+| Method | Endpoint | Description | Release |
+|---|---|---|---|
+| `POST` | `/api/articles/{article_id}/submit` | Submit an article for review | Beta |
+| `POST` | `/api/articles/{article_id}/review` | Review a submitted article | Beta |
+| `POST` | `/api/articles/{article_id}/publish` | Publish an approved article | Beta |
+| `PATCH` | `/api/users/{user_id}/role` | Update a user's role | Beta |
+
+### 5.4 HTTP Status Codes
+
+| Status Code | Meaning |
+|---|---|
+| `200 OK` | Request completed successfully |
+| `201 Created` | Resource created successfully |
+| `400 Bad Request` | Invalid request |
+| `401 Unauthorized` | Authentication is required or invalid |
+| `403 Forbidden` | User does not have permission |
+| `404 Not Found` | Resource does not exist |
+| `422 Unprocessable Entity` | Request validation failed |
+| `500 Internal Server Error` | Unexpected server error |
+
+The endpoint list describes the planned API design. The final paths should match the implemented FastAPI routes.
+
+## 6. Deployment and Configuration
+
+### 6.1 Supabase Configuration
+
+Supabase provides the PostgreSQL database for DocHub.
+
+Create a Supabase project and use its PostgreSQL connection details to configure the FastAPI backend. Store the database connection string in an environment variable.
+
+Example backend `.env`:
+
+```env
+DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<database>
+```
+
+Database credentials should not be committed to GitHub or exposed in frontend environment variables.
+
+### 6.2 Vercel Configuration
+
+Vercel is used to deploy the React frontend.
+
+Connect the frontend GitHub repository to Vercel and configure the project:
+
+- Set the frontend root directory (for example, `frontend/`).
+- Set the build command to `npm run build`.
+- Set the output directory to `dist`.
+- Configure the production FastAPI base URL as a frontend environment variable, such as `VITE_API_BASE_URL`.
+- Redeploy after changing environment variables.
+
+### 6.3 FastAPI Backend Deployment
+
+The frontend is hosted on Vercel. The FastAPI backend must also be deployed to a reachable hosting environment and configured with the Supabase database connection string.
+
+The deployed frontend's API base URL must point to the deployed FastAPI backend.
+
+### 6.4 Local Development
+
+**Backend**
+
+From the backend directory:
+
+```bash
+fastapi dev app/main.py
+```
+
+The FastAPI development server provides interactive API documentation at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+**Frontend**
+
+From the frontend directory:
+
+```bash
+npm install
+npm run dev
+```
+
+The frontend development server uses the address printed by Vite, commonly:
+
+```text
+http://localhost:5173
+```
+
+### 6.5 Deployment Checklist
+
+- Configure the Supabase PostgreSQL connection string in the backend environment.
+- Configure the frontend API base URL.
+- Configure backend CORS to allow the deployed Vercel frontend origin.
+- Keep database credentials and JWT secrets out of source control.
+- Verify that the deployed frontend can communicate with FastAPI.
+- Verify that FastAPI can connect to Supabase PostgreSQL.
+- Test the article API operations after deployment.
