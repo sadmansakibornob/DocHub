@@ -8,6 +8,9 @@ app = FastAPI(
     title="DocHub API",
     description="Internal knowledge-sharing platform",
     version="1.0.0",
+    docs_url="/api/docs",
+    openapi_url="/api/openapi.json",
+    redoc_url=None,
 )
 
 app.include_router(user_router)
