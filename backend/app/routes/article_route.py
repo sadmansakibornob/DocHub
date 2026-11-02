@@ -20,44 +20,83 @@ router = APIRouter(
 )
 
 
+# HELPER: ATTACH AUTHOR NAMES TO ARTICLES
+def attach_author_names(articles: list[dict]) -> list[dict]:
+    if not articles:
+        return []
+
+    author_ids = list({
+        str(article["author_id"])
+        for article in articles
+        if article.get("author_id")
+    })
+
+    if not author_ids:
+        return [
+            {**article, "author_name": None}
+            for article in articles
+        ]
+
+    response = (
+        supabase.table("users")
+        .select("id, name")
+        .in_("id", author_ids)
+        .execute()
+    )
+
+    authors = {
+        str(author["id"]): author.get("name")
+        for author in (response.data or [])
+    }
+
+    return [
+        {
+            **article,
+            "author_name": authors.get(str(article["author_id"])),
+        }
+        for article in articles
+    ]
+
+
 # GET ALL ARTICLES
-# Anonymous: Published articles only
-# Contributor: Published articles + own articles
+# Anonymous / Reader: Published articles only
+# Contributor: All published articles + own unpublished articles
 # Admin: All articles
+
 @router.get("/", response_model=list[ArticleResponse])
 def get_all_articles(
     category_id: int | None = None,
     article_status: ArticleStatus | None = None,
     current_user: dict | None = Depends(get_optional_current_user),
 ):
-
     query = supabase.table("articles").select("*")
 
     # Filter by category
     if category_id is not None:
         query = query.eq("category_id", category_id)
 
-    # Anonymous visitors can only see published articles
-    if current_user is None:
+    # Anonymous visitors and readers can only see published articles
+    if current_user is None or current_user["role"] == "reader":
         query = query.eq("status", "published")
 
     # Admin can see all articles
     elif current_user["role"] == "admin":
-        if article_status is not None:
-            query = query.eq("status", article_status)
+        pass
 
-    # Contributor can see published articles and their own articles
+    # Contributors can see all published articles
+    # and their own drafts / articles under review
     elif current_user["role"] == "contributor":
         query = query.or_(
             f"status.eq.published,author_id.eq.{current_user['id']}"
         )
 
-        if article_status is not None:
-            query = query.eq("status", article_status)
-
-    # Other authenticated roles can only see published articles
+    # Any unrecognized role gets published articles only
     else:
         query = query.eq("status", "published")
+
+    # Optional status filter
+    if article_status is not None:
+        query = query.eq("status", article_status)
 
     response = (
         query
@@ -65,18 +104,18 @@ def get_all_articles(
         .execute()
     )
 
-    return response.data
+    return attach_author_names(response.data or [])
 
 
 # GET ARTICLE BY ID
 # Published articles are public
 # Unpublished articles are accessible to their author or admin
+
 @router.get("/{article_id}", response_model=ArticleResponse)
 def get_article(
     article_id: int,
     current_user: dict | None = Depends(get_optional_current_user),
 ):
-
     response = (
         supabase.table("articles")
         .select("*")
@@ -86,7 +125,7 @@ def get_article(
 
     if not response.data:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Article not found",
         )
 
@@ -94,34 +133,35 @@ def get_article(
 
     # Published articles are publicly accessible
     if article["status"] == "published":
-        return article
+        return attach_author_names([article])[0]
 
     # Unpublished articles require authentication
     if current_user is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Article not found",
         )
 
     # Admin can access every article
     if current_user["role"] == "admin":
-        return article
+        return attach_author_names([article])[0]
 
     # Contributors can access their own articles
     if (
         current_user["role"] == "contributor"
         and str(article["author_id"]) == str(current_user["id"])
     ):
-        return article
+        return attach_author_names([article])[0]
 
     raise HTTPException(
-        status_code=404,
+        status_code=status.HTTP_404_NOT_FOUND,
         detail="Article not found",
     )
 
 
 # CREATE ARTICLE
 # Contributor and admin
+
 @router.post(
     "/",
     response_model=ArticleResponse,
@@ -133,10 +173,8 @@ def create_article(
         require_role("contributor", "admin")
     ),
 ):
-
     # Validate category if provided
     if article.category_id is not None:
-
         category = (
             supabase.table("categories")
             .select("id")
@@ -146,7 +184,7 @@ def create_article(
 
         if not category.data:
             raise HTTPException(
-                status_code=404,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Category not found",
             )
 
@@ -166,16 +204,17 @@ def create_article(
 
     if not response.data:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Article creation failed",
         )
 
-    return response.data[0]
+    return attach_author_names(response.data)[0]
 
 
 # UPDATE ARTICLE
 # Contributors can update their own articles
 # Admins can update all articles
+
 @router.patch("/{article_id}", response_model=ArticleResponse)
 def update_article(
     article_id: int,
@@ -184,7 +223,6 @@ def update_article(
         require_role("contributor", "admin")
     ),
 ):
-
     existing = (
         supabase.table("articles")
         .select("*")
@@ -194,7 +232,7 @@ def update_article(
 
     if not existing.data:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Article not found",
         )
 
@@ -206,7 +244,7 @@ def update_article(
         and str(current_article["author_id"]) != str(current_user["id"])
     ):
         raise HTTPException(
-            status_code=403,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only update your own articles",
         )
 
@@ -214,7 +252,7 @@ def update_article(
 
     if not updated_fields:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields provided for update",
         )
 
@@ -224,7 +262,7 @@ def update_article(
         and "status" in updated_fields
     ):
         raise HTTPException(
-            status_code=403,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can change article status",
         )
 
@@ -233,7 +271,6 @@ def update_article(
         "category_id" in updated_fields
         and updated_fields["category_id"] is not None
     ):
-
         category = (
             supabase.table("categories")
             .select("id")
@@ -243,7 +280,7 @@ def update_article(
 
         if not category.data:
             raise HTTPException(
-                status_code=404,
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Category not found",
             )
 
@@ -260,16 +297,17 @@ def update_article(
 
     if not response.data:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Article update failed",
         )
 
-    return response.data[0]
+    return attach_author_names(response.data)[0]
 
 
 # DELETE ARTICLE
 # Contributors can delete their own articles
 # Admins can delete all articles
+
 @router.delete(
     "/{article_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -280,7 +318,6 @@ def delete_article(
         require_role("contributor", "admin")
     ),
 ):
-
     existing = (
         supabase.table("articles")
         .select("*")
@@ -290,7 +327,7 @@ def delete_article(
 
     if not existing.data:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Article not found",
         )
 
@@ -302,7 +339,7 @@ def delete_article(
         and str(article["author_id"]) != str(current_user["id"])
     ):
         raise HTTPException(
-            status_code=403,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only delete your own articles",
         )
 

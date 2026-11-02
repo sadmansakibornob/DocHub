@@ -33,3 +33,9 @@ pip-wheel-metadata/
 cdk.out/
 infra/cdk.out/
 infra/cdk-outputs.json
+
+backend/.env
+
+.env
+.env.*
+!.env.example
