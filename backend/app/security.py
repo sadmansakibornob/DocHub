@@ -1,101 +1,174 @@
-from fastapi import Depends, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+import jwt
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+from app.config import settings
 from app.db import supabase
 
 
-# Authentication scheme
-security = HTTPBearer()
-optional_security = HTTPBearer(auto_error=False)
+# Optional Bearer authentication.
+# FastAPI will now recognize this security scheme in Swagger.
+bearer = HTTPBearer(auto_error=False)
+
+ALGORITHM = "HS256"
 
 
-# GET CURRENT USER
-# Requires a valid access token
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
-    token = credentials.credentials
+def issue_access_token(user: dict, session_id: str) -> str:
+    now = datetime.now(timezone.utc)
 
+    payload = {
+        "sub": str(user["id"]),
+        "role": user["role"],
+        "sid": session_id,
+        "iat": now,
+        "exp": now + timedelta(
+            minutes=min(settings.access_token_minutes, 15)
+        ),
+        "iss": "dochub-api",
+        "aud": "dochub",
+    }
+
+    return jwt.encode(
+        payload,
+        settings.jwt_secret,
+        algorithm=ALGORITHM,
+    )
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
     try:
-        auth_response = supabase.auth.get_user(token)
-        auth_user = auth_response.user
-
-        if not auth_user:
-            raise ValueError("User not found")
-
-        response = (
-            supabase.table("users")
-            .select("*")
-            .eq("id", str(auth_user.id))
-            .execute()
+        return jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[ALGORITHM],
+            issuer="dochub-api",
+            audience="dochub",
+            options={
+                "require": ["sub", "role", "sid", "exp", "iat"]
+            },
         )
 
-        if not response.data:
-            raise ValueError("User profile not found")
-
-        return response.data[0]
-
-    except Exception:
+    except jwt.PyJWTError as exc:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Invalid or expired access token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+def _active_user(claims: dict) -> dict:
+    try:
+        # Verify that the session exists and is not revoked.
+        session = (
+            supabase.table("auth_sessions")
+            .select("id,user_id,revoked_at,expires_at")
+            .eq("id", claims["sid"])
+            .eq("user_id", claims["sub"])
+            .limit(1)
+            .execute()
+            .data
+        )
+
+        if not session or session[0].get("revoked_at"):
+            raise HTTPException(
+                status_code=401,
+                detail="Session is revoked",
+            )
+
+        # Verify session expiration.
+        expires_at = session[0].get("expires_at")
+
+        if expires_at:
+            expiry = datetime.fromisoformat(
+                expires_at.replace("Z", "+00:00")
+            )
+
+            if expiry <= datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=401,
+                    detail="Session expired",
+                )
+
+        # Fetch the latest user information from the database.
+        rows = (
+            supabase.table("users")
+            .select("id,name,email,role,is_banned,ban_reason")
+            .eq("id", claims["sub"])
+            .limit(1)
+            .execute()
+            .data
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service temporarily unavailable",
+        ) from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=401,
+            detail="Account not found",
+        )
+
+    user = rows[0]
+
+    if user.get("is_banned"):
+        raise HTTPException(
+            status_code=403,
+            detail="This account is suspended",
+        )
+
+    if user.get("role") not in {"user", "admin"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Account role is invalid; contact an administrator",
+        )
+
+    # Reject tokens issued before a role change.
+    if claims.get("role") != user.get("role"):
+        raise HTTPException(
+            status_code=401,
+            detail="Role changed; sign in again",
+        )
+
+    return user
+
+
+# Required authentication.
+# Returns 401 if the request has no valid access token.
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    claims = decode_access_token(credentials.credentials)
 
-# GET OPTIONAL CURRENT USER
-# Allows anonymous visitors
-# Validates the token if one is provided
+    return _active_user(claims)
+
+
+# Optional authentication.
+# Allows anonymous access to public articles while identifying
+# authenticated users so they can access their own drafts.
 def get_optional_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(
-        optional_security
-    ),
-):
-    # Anonymous visitor
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict | None:
+
     if credentials is None:
         return None
 
-    token = credentials.credentials
+    claims = decode_access_token(credentials.credentials)
 
-    try:
-        auth_response = supabase.auth.get_user(token)
-        auth_user = auth_response.user
-
-        if not auth_user:
-            raise ValueError("User not found")
-
-        response = (
-            supabase.table("users")
-            .select("*")
-            .eq("id", str(auth_user.id))
-            .execute()
-        )
-
-        if not response.data:
-            raise ValueError("User profile not found")
-
-        return response.data[0]
-
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired access token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-# ROLE-BASED AUTHORIZATION
-# Checks whether the authenticated user has an allowed role
-def require_role(*allowed_roles):
-    def role_checker(
-        current_user: dict = Depends(get_current_user),
-    ):
-        if current_user["role"] not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to perform this action",
-            )
-
-        return current_user
-
-    return role_checker
+    return _active_user(claims)

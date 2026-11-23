@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 
 from app.db import supabase
-from app.security import require_role
+from app.rbac import require_role
 from app.schemas.category_schema import (
     CategoryCreate,
     CategoryUpdate,
@@ -64,6 +64,7 @@ def create_category(
     response = (
         supabase.table("categories")
         .insert(category.model_dump())
+        .select("*")
         .execute()
     )
 
@@ -98,6 +99,7 @@ def update_category(
         supabase.table("categories")
         .update(updated_fields)
         .eq("id", category_id)
+        .select("*")
         .execute()
     )
 
