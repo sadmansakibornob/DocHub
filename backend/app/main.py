@@ -1,11 +1,8 @@
 from fastapi import FastAPI
-<<<<<<< Updated upstream
 
-=======
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.auth_route import router as auth_router
->>>>>>> Stashed changes
 from app.routes.user_route import router as user_router
 from app.routes.article_route import router as article_router
 from app.routes.category_route import router as category_router
@@ -22,20 +19,6 @@ app = FastAPI(
     redoc_url=None,
 )
 
-<<<<<<< Updated upstream
-app.include_router(user_router)
-app.include_router(article_router)
-app.include_router(category_router)
-
-
-@app.get("/")
-def root():
-    return {
-        "message": "Welcome to DocHub API",
-        "status": "running",
-    }
-
-=======
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -48,7 +31,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
->>>>>>> Stashed changes
 
 # Authentication routes
 app.include_router(auth_router)
@@ -80,10 +62,7 @@ def root():
 
 @app.get("/health", tags=["Health"])
 def health_check():
-<<<<<<< Updated upstream
-    return {"status": "healthy"}
-=======
     return {
         "status": "healthy",
     }
->>>>>>> Stashed changes
+

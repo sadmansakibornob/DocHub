@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Literal
 
@@ -27,6 +26,7 @@ class ArticleResponse(BaseModel):
     content: str
     category_id: int | None = None
     author_id: str
+    author_name: str | None = None
     status: ArticleStatus
     created_at: datetime | None = None
     updated_at: datetime | None = None

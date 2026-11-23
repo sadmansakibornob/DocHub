@@ -35,3 +35,8 @@ infra/cdk.out/
 infra/cdk-outputs.json
 
 /backend/.env
+backend/.env
+
+.env
+.env.*
+!.env.example
