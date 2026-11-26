@@ -1,209 +1,532 @@
-import csv, io
-from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+import csv
+import io
+
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+)
 from fastapi.responses import StreamingResponse
-from app.db import supabase
+
+from app.audit import audit as write_audit
 from app.rbac import require_role
-from app.schemas.auth_schema import BanRequest, RoleUpdateRequest, BulkUsersRequest, ArticleModerationRequest
-from app.audit import audit
+from app.repositories import admin_repository as repo
 
-router = APIRouter(prefix="/api/admin", tags=["Administration"])
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["Administration"],
+)
 
-def _user(uid: str) -> dict:
-    rows = supabase.table("users").select("id,name,email,role,is_banned,ban_reason,created_at,updated_at").eq("id", uid).limit(1).execute().data
-    if not rows: raise HTTPException(404, "User not found")
-    return rows[0]
 
-def _revoke(uid: str) -> int:
-    rows = supabase.table("auth_sessions").update({"revoked_at": datetime.now(timezone.utc).isoformat()}).eq("user_id", uid).is_("revoked_at", "null").select("id").execute().data
-    return len(rows or [])
+# ==================================================
+# HELPERS
+# ==================================================
 
-@router.get("/dashboard")
-def dashboard(_: dict = Depends(require_role("admin"))):
-    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    users_q = supabase.table("users").select("id", count="exact")
-    users_total = users_q.execute().count or 0
-    banned_total = supabase.table("users").select("id", count="exact").eq("is_banned", True).execute().count or 0
-    articles_total = supabase.table("articles").select("id", count="exact").execute().count or 0
-    groups_total = supabase.table("groups").select("id", count="exact").execute().count or 0
-    new_users = supabase.table("users").select("id", count="exact").gte("created_at", since).execute().count or 0
-    new_articles = supabase.table("articles").select("id", count="exact").gte("created_at", since).execute().count or 0
-    new_groups = supabase.table("groups").select("id", count="exact").gte("created_at", since).execute().count or 0
-    return {"users_total": users_total, "banned_users": banned_total,
-            "records_total": articles_total, "groups_total": groups_total,
-            "new_users_7d": new_users, "new_records_7d": new_articles,
-            "new_groups_7d": new_groups}
 
-@router.get("/users")
-def list_users(search: str | None = None, role: str | None = None, status: str | None = None,
-               limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0),
-               _: dict = Depends(require_role("admin"))):
-    q = supabase.table("users").select("id,name,email,role,is_banned,ban_reason,created_at,updated_at", count="exact")
-    if role:
-        if role not in {"user", "admin"}: raise HTTPException(422, "Invalid role filter")
-        q = q.eq("role", role)
-    if status:
-        if status not in {"active", "banned"}: raise HTTPException(422, "Invalid status filter")
-        q = q.eq("is_banned", status == "banned")
-    if search:
-        import re
-        term = re.sub(r"[^A-Za-z0-9@._+\- ]", "", search.strip()[:80])
-        if term: q = q.or_(f"name.ilike.%{term}%,email.ilike.%{term}%")
-    result = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return {"items": result.data or [], "total": result.count or 0, "limit": limit, "offset": offset}
+def audit(
+    admin,
+    action,
+    target_type=None,
+    target_id=None,
+    metadata=None,
+):
+    write_audit(
+        actor_id=admin["id"],
+        action=action,
+        target_type=target_type,
+        target_id=str(target_id) if target_id is not None else None,
+        metadata=metadata,
+    )
 
-@router.get("/users/{user_id}")
-def user_detail(user_id: str, _: dict = Depends(require_role("admin"))):
-    user = _user(user_id)
-    user["records"] = supabase.table("articles").select("id,title,status,created_at").eq("author_id", user_id).order("created_at", desc=True).limit(50).execute().data or []
-    memberships = supabase.table("group_members").select("group_id,role,groups(id,name)").eq("user_id", user_id).execute().data or []
-    user["groups"] = memberships
-    user["sessions"] = supabase.table("auth_sessions").select("id,user_agent,ip_address,created_at,last_seen_at,expires_at,revoked_at").eq("user_id", user_id).order("created_at", desc=True).limit(50).execute().data or []
-    user["recent_activity"] = supabase.table("audit_logs").select("action,target_type,target_id,metadata,created_at,ip_address,user_agent").eq("actor_id", user_id).order("created_at", desc=True).limit(50).execute().data or []
+
+def get_existing_user(user_id):
+    user = repo.get_user(user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found",
+        )
+
     return user
 
+
+def create_csv(rows, fields, filename):
+    output = io.StringIO()
+
+    writer = csv.DictWriter(
+        output,
+        fieldnames=fields,
+        extrasaction="ignore",
+    )
+
+    writer.writeheader()
+    writer.writerows(rows)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ==================================================
+# DASHBOARD
+# ==================================================
+
+
+@router.get("/dashboard")
+def get_dashboard(
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_dashboard_stats()
+
+
+# ==================================================
+# USER MANAGEMENT
+# ==================================================
+
+
+@router.get("/users")
+def list_users(
+    search: str | None = None,
+    role: str | None = None,
+    status: str | None = None,
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    if role and role not in {"user", "admin"}:
+        raise HTTPException(400, "Invalid user role")
+
+    if status and status not in {"active", "banned"}:
+        raise HTTPException(400, "Invalid user status")
+
+    return repo.list_users(
+        search=search,
+        role=role,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/users/{user_id}")
+def get_user(
+    user_id: str,
+    admin: dict = Depends(require_role("admin")),
+):
+    return get_existing_user(user_id)
+
+
 @router.patch("/users/{user_id}/role")
-def update_role(user_id: str, payload: RoleUpdateRequest, request: Request, actor: dict = Depends(require_role("admin"))):
-    target = _user(user_id)
-    if user_id == actor["id"]: raise HTTPException(400, "You cannot change your own role")
-    if target["role"] == "admin" and payload.role != "admin":
-        admins = supabase.table("users").select("id").eq("role", "admin").execute().data or []
-        if len(admins) <= 1: raise HTTPException(409, "Cannot demote the last administrator")
-    row = supabase.table("users").update({"role": payload.role, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", user_id).select("id,name,email,role,is_banned").execute().data[0]
-    _revoke(user_id)
-    audit(actor["id"], "admin.user.role_change", request, "user", user_id, {"old_role": target["role"], "new_role": payload.role})
-    return row
+def update_user_role(
+    user_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(require_role("admin")),
+):
+    get_existing_user(user_id)
 
-@router.post("/users/{user_id}/ban")
-def ban_user(user_id: str, payload: BanRequest, request: Request, actor: dict = Depends(require_role("admin"))):
-    target = _user(user_id)
-    if user_id == actor["id"]: raise HTTPException(400, "You cannot ban your own account")
-    if target["role"] == "admin": raise HTTPException(403, "Administrators cannot ban another administrator")
-    row = supabase.table("users").update({"is_banned": True, "ban_reason": payload.reason.strip(), "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", user_id).select("id,name,email,role,is_banned,ban_reason").execute().data[0]
-    revoked = _revoke(user_id)
-    audit(actor["id"], "admin.user.ban", request, "user", user_id, {"reason": payload.reason.strip(), "sessions_revoked": revoked})
-    return row
+    role = payload.get("role")
 
-@router.post("/users/{user_id}/unban")
-def unban_user(user_id: str, request: Request, actor: dict = Depends(require_role("admin"))):
-    _user(user_id)
-    row = supabase.table("users").update({"is_banned": False, "ban_reason": None, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", user_id).select("id,name,email,role,is_banned").execute().data[0]
-    audit(actor["id"], "admin.user.unban", request, "user", user_id)
-    return row
+    if role not in {"user", "admin"}:
+        raise HTTPException(400, "Invalid user role")
 
-@router.post("/users/bulk-ban")
-def bulk_ban(payload: BulkUsersRequest, request: Request, actor: dict = Depends(require_role("admin"))):
-    ids = list(dict.fromkeys(payload.user_ids))
-    if actor["id"] in ids: raise HTTPException(400, "Bulk action cannot include your own account")
-    targets = supabase.table("users").select("id,role").in_("id", ids).execute().data or []
-    if len(targets) != len(ids): raise HTTPException(404, "One or more users were not found")
-    if any(x["role"] == "admin" for x in targets): raise HTTPException(403, "Administrators cannot be bulk-banned")
-    now = datetime.now(timezone.utc).isoformat()
-    supabase.table("users").update({"is_banned": True, "ban_reason": payload.reason.strip(), "updated_at": now}).in_("id", ids).execute()
-    revoked = 0
-    for uid in ids: revoked += _revoke(uid)
-    audit(actor["id"], "admin.user.bulk_ban", request, "users", metadata={"user_ids": ids, "reason": payload.reason.strip()})
-    return {"updated": len(ids), "sessions_revoked": revoked}
+    if user_id == admin["id"] and role != "admin":
+        raise HTTPException(
+            400,
+            "You cannot remove your own admin role",
+        )
 
-@router.post("/users/bulk-unban")
-def bulk_unban(payload: list[str], request: Request, actor: dict = Depends(require_role("admin"))):
-    ids = list(dict.fromkeys(payload))
-    if not ids or len(ids) > 100: raise HTTPException(422, "Provide between 1 and 100 user IDs")
-    found = supabase.table("users").select("id").in_("id", ids).execute().data or []
-    if len(found) != len(ids): raise HTTPException(404, "One or more users were not found")
-    result = supabase.table("users").update({"is_banned": False, "ban_reason": None, "updated_at": datetime.now(timezone.utc).isoformat()}).in_("id", ids).select("id").execute()
-    audit(actor["id"], "admin.user.bulk_unban", request, "users", metadata={"user_ids": ids})
-    return {"updated": len(result.data or [])}
+    repo.update_user_role(user_id, role)
+
+    audit(
+        admin,
+        "user_role_updated",
+        "user",
+        user_id,
+        {"role": role},
+    )
+
+    return {
+        "message": "User role updated successfully",
+        "user": repo.get_user(user_id),
+    }
+
+
+# Supports both POST and PATCH because the frontend currently sends POST.
+@router.api_route(
+    "/users/{user_id}/ban",
+    methods=["POST", "PATCH"],
+)
+def update_user_ban(
+    user_id: str,
+    payload: dict = Body(...),
+    admin: dict = Depends(require_role("admin")),
+):
+    get_existing_user(user_id)
+
+    banned = payload.get("is_banned")
+
+    if not isinstance(banned, bool):
+        raise HTTPException(
+            400,
+            "is_banned must be true or false",
+        )
+
+    if user_id == admin["id"] and banned:
+        raise HTTPException(
+            400,
+            "You cannot ban your own account",
+        )
+
+    reason = payload.get("reason")
+
+    repo.set_user_banned(
+        user_id,
+        banned,
+        reason,
+    )
+
+    revoked_sessions = 0
+
+    if banned:
+        revoked_sessions = repo.revoke_user_sessions(user_id)
+
+    audit(
+        admin,
+        "user_banned" if banned else "user_unbanned",
+        "user",
+        user_id,
+        {
+            "reason": reason,
+            "revoked_sessions": revoked_sessions,
+        },
+    )
+
+    return {
+        "message": (
+            "User banned successfully" if banned else "User unbanned successfully"
+        ),
+        "user": repo.get_user(user_id),
+        "revoked_sessions": revoked_sessions,
+    }
+
 
 @router.post("/users/{user_id}/revoke-sessions")
-def revoke_user_sessions(user_id: str, request: Request, actor: dict = Depends(require_role("admin"))):
-    _user(user_id); count = _revoke(user_id)
-    audit(actor["id"], "admin.user.sessions_revoke", request, "user", user_id, {"count": count})
-    return {"revoked": count}
+def revoke_user_sessions(
+    user_id: str,
+    admin: dict = Depends(require_role("admin")),
+):
+    get_existing_user(user_id)
+
+    revoked = repo.revoke_user_sessions(user_id)
+
+    audit(
+        admin,
+        "user_sessions_revoked",
+        "user",
+        user_id,
+        {"revoked_sessions": revoked},
+    )
+
+    return {
+        "message": "User sessions revoked successfully",
+        "revoked_sessions": revoked,
+    }
+
+
+# ==================================================
+# ARTICLE MODERATION
+# ==================================================
+
+
+@router.get("/articles")
+def list_articles(
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_articles(
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
 
 @router.get("/moderation/articles")
-def moderation_articles(status: str | None = None, limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), _: dict = Depends(require_role("admin"))):
-    q = supabase.table("articles").select("*", count="exact")
-    if status:
-        if status not in {"draft", "review", "published"}: raise HTTPException(422, "Invalid article status")
-        q = q.eq("status", status)
-    r = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return {"items": r.data or [], "total": r.count or 0, "limit": limit, "offset": offset}
+def get_moderation_articles(
+    status: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_articles(
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
 
-@router.delete("/moderation/articles/{article_id}", status_code=204)
-def delete_article(article_id: int, request: Request, actor: dict = Depends(require_role("admin"))):
-    rows = supabase.table("articles").delete().eq("id", article_id).select("id").execute().data
-    if not rows: raise HTTPException(404, "Article not found")
-    audit(actor["id"], "admin.article.delete", request, "article", str(article_id))
 
-@router.post("/moderation/articles/bulk-delete")
-def bulk_delete_articles(payload: ArticleModerationRequest, request: Request, actor: dict = Depends(require_role("admin"))):
-    ids = list(dict.fromkeys(payload.article_ids))
-    rows = supabase.table("articles").delete().in_("id", ids).select("id").execute().data or []
-    audit(actor["id"], "admin.article.bulk_delete", request, "articles", metadata={"ids": ids})
-    return {"deleted": len(rows)}
+@router.get("/articles/{article_id}")
+def get_article(
+    article_id: int,
+    admin: dict = Depends(require_role("admin")),
+):
+    article = repo.get_article(article_id)
+
+    if not article:
+        raise HTTPException(
+            404,
+            "Article not found",
+        )
+
+    return article
+
+
+@router.patch("/articles/{article_id}/status")
+@router.patch("/moderation/articles/{article_id}/status")
+def update_article_status(
+    article_id: int,
+    payload: dict = Body(...),
+    admin: dict = Depends(require_role("admin")),
+):
+    article = repo.get_article(article_id)
+
+    if not article:
+        raise HTTPException(
+            404,
+            "Article not found",
+        )
+
+    status = payload.get("status")
+
+    allowed_statuses = {
+        "draft",
+        "review",
+        "published",
+    }
+
+    if status not in allowed_statuses:
+        raise HTTPException(
+            400,
+            "Invalid article status",
+        )
+
+    repo.update_article_status(
+        article_id,
+        status,
+    )
+
+    audit(
+        admin,
+        "article_status_updated",
+        "article",
+        article_id,
+        {"status": status},
+    )
+
+    return {
+        "message": "Article status updated successfully",
+        "article": repo.get_article(article_id),
+    }
+
+
+@router.delete("/articles/{article_id}")
+def delete_article(
+    article_id: int,
+    admin: dict = Depends(require_role("admin")),
+):
+    article = repo.get_article(article_id)
+
+    if not article:
+        raise HTTPException(
+            404,
+            "Article not found",
+        )
+
+    repo.delete_article(article_id)
+
+    audit(
+        admin,
+        "article_deleted",
+        "article",
+        article_id,
+    )
+
+    return {
+        "message": "Article deleted successfully",
+    }
+
+
+# ==================================================
+# GROUP MANAGEMENT
+# ==================================================
+
+
+@router.get("/groups")
+def list_groups(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_groups(
+        limit=limit,
+        offset=offset,
+    )
+
 
 @router.get("/moderation/groups")
-def moderation_groups(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0), _: dict = Depends(require_role("admin"))):
-    r = supabase.table("groups").select("*", count="exact").order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return {"items": r.data or [], "total": r.count or 0, "limit": limit, "offset": offset}
+def get_moderation_groups(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_groups(
+        limit=limit,
+        offset=offset,
+    )
 
-@router.delete("/moderation/groups/{group_id}", status_code=204)
-def delete_group(group_id: str, request: Request, actor: dict = Depends(require_role("admin"))):
-    rows = supabase.table("groups").delete().eq("id", group_id).select("id").execute().data
-    if not rows: raise HTTPException(404, "Group not found")
-    audit(actor["id"], "admin.group.delete", request, "group", group_id)
+
+@router.delete("/groups/{group_id}")
+def delete_group(
+    group_id: str,
+    admin: dict = Depends(require_role("admin")),
+):
+    repo.delete_group(group_id)
+
+    audit(
+        admin,
+        "group_deleted",
+        "group",
+        group_id,
+    )
+
+    return {
+        "message": "Group deleted successfully",
+    }
+
+
+# ==================================================
+# AUDIT LOGS
+# ==================================================
+
 
 @router.get("/audit-logs")
-def audit_logs(action: str | None = None, search: str | None = None, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0), _: dict = Depends(require_role("admin"))):
-    q = supabase.table("audit_logs").select("*", count="exact")
-    if action: q = q.eq("action", action[:100])
-    if search: q = q.ilike("action", f"%{search.strip()[:80]}%")
-    r = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    return {"items": r.data or [], "total": r.count or 0, "limit": limit, "offset": offset}
+def list_audit_logs(
+    action: str | None = None,
+    search: str | None = None,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_audit_logs(
+        action=action,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+# ==================================================
+# SECURITY MONITORING
+# ==================================================
+
 
 @router.get("/security/failed-logins")
-def failed_logins(limit: int = Query(100, ge=1, le=500), _: dict = Depends(require_role("admin"))):
-    rows = supabase.table("login_attempts").select("email,ip_address,attempted_at,user_agent").eq("succeeded", False).order("attempted_at", desc=True).limit(limit).execute().data or []
-    summary = {}
-    for row in rows:
-        for key, value in (("ip", row.get("ip_address") or "unknown"), ("account", row.get("email") or "unknown")):
-            summary.setdefault(key, {}).setdefault(value, 0); summary[key][value] += 1
-    return {"events": rows, "by_ip": summary.get("ip", {}), "by_account": summary.get("account", {})}
+def get_failed_logins(
+    limit: int = Query(100, ge=1, le=500),
+    admin: dict = Depends(require_role("admin")),
+):
+    return repo.get_failed_logins(
+        limit=limit,
+    )
 
-def _csv(rows: list[dict], fields: list[str], filename: str):
-    out = io.StringIO(); writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore"); writer.writeheader(); writer.writerows(rows)
-    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
-@router.get("/export/users.csv")
-def export_users(request: Request, role: str | None = None, status: str | None = None, actor: dict = Depends(require_role("admin"))):
-    q = supabase.table("users").select("id,name,email,role,is_banned,created_at")
-    if role in {"user", "admin"}: q = q.eq("role", role)
-    if status in {"active", "banned"}: q = q.eq("is_banned", status == "banned")
-    rows = q.order("created_at", desc=True).execute().data or []
-    audit(actor["id"], "admin.export.users", request, "export", metadata={"role": role, "status": status})
-    return _csv(rows, ["id", "name", "email", "role", "is_banned", "created_at"], "dochub-users.csv")
+# ==================================================
+# DATA EXPORT
+# ==================================================
 
-@router.get("/export/articles.csv")
-def export_articles(request: Request, status: str | None = None, actor: dict = Depends(require_role("admin"))):
-    q = supabase.table("articles").select("id,title,author_id,category_id,status,created_at,updated_at")
-    if status in {"draft", "review", "published"}: q = q.eq("status", status)
-    rows = q.order("created_at", desc=True).execute().data or []
-    audit(actor["id"], "admin.export.articles", request, "export", metadata={"status": status})
-    return _csv(rows, ["id", "title", "author_id", "category_id", "status", "created_at", "updated_at"], "dochub-articles.csv")
 
-@router.get("/export/activity.csv")
-def export_activity(request: Request, action: str | None = None, actor: dict = Depends(require_role("admin"))):
-    q = supabase.table("audit_logs").select("actor_id,action,target_type,target_id,metadata,ip_address,user_agent,created_at")
-    if action: q = q.eq("action", action[:100])
-    rows = q.order("created_at", desc=True).limit(10000).execute().data or []
-    audit(actor["id"], "admin.export.activity", request, "export", metadata={"action": action})
-    return _csv(rows, ["actor_id", "action", "target_type", "target_id", "metadata", "ip_address", "user_agent", "created_at"], "dochub-activity.csv")
+@router.get("/export/{table}")
+def export_data(
+    table: str,
+    status: str | None = Query(None),
+    admin: dict = Depends(require_role("admin")),
+):
+    table = table.removesuffix(".csv")
 
-@router.post("/moderation/groups/bulk-delete")
-def bulk_delete_groups(payload: list[str], request: Request, actor: dict = Depends(require_role("admin"))):
-    ids = list(dict.fromkeys(payload))
-    if not ids or len(ids) > 100: raise HTTPException(422, "Provide between 1 and 100 group IDs")
-    rows = supabase.table("groups").delete().in_("id", ids).select("id").execute().data or []
-    audit(actor["id"], "admin.group.bulk_delete", request, "groups", metadata={"ids": ids})
-    return {"deleted": len(rows)}
+    # Frontend names mapped to actual database tables.
+    allowed_tables = {
+        "users": (
+            "users",
+            "id,name,email,role,is_banned,created_at",
+        ),
+        "articles": (
+            "articles",
+            "*",
+        ),
+        "groups": (
+            "groups",
+            "*",
+        ),
+        "activity": (
+            "audit_logs",
+            "*",
+        ),
+        "audit_logs": (
+            "audit_logs",
+            "*",
+        ),
+    }
+
+    if table not in allowed_tables:
+        raise HTTPException(
+            400,
+            "Export is not allowed for this table",
+        )
+
+    db_table, fields = allowed_tables[table]
+
+    filters = {}
+
+    if db_table == "articles" and status:
+        if status not in {"draft", "review", "published"}:
+            raise HTTPException(
+                400,
+                "Invalid article status",
+            )
+
+        filters["status"] = status
+
+    rows = repo.get_export_rows(
+        table=db_table,
+        fields=fields,
+        filters=filters,
+    )
+
+    if rows:
+        csv_fields = list(rows[0].keys())
+    elif fields != "*":
+        csv_fields = fields.split(",")
+    else:
+        csv_fields = ["id"]
+
+    audit(
+        admin,
+        "data_exported",
+        db_table,
+        metadata={
+            "row_count": len(rows),
+            "status": status or "all",
+        },
+    )
+
+    return create_csv(
+        rows,
+        csv_fields,
+        f"{table}.csv",
+    )

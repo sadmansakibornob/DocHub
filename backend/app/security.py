@@ -3,11 +3,10 @@ from typing import Any
 
 import jwt
 from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import settings
 from app.db import supabase
-
 
 # Optional Bearer authentication.
 # FastAPI will now recognize this security scheme in Swagger.
@@ -24,9 +23,7 @@ def issue_access_token(user: dict, session_id: str) -> str:
         "role": user["role"],
         "sid": session_id,
         "iat": now,
-        "exp": now + timedelta(
-            minutes=min(settings.access_token_minutes, 15)
-        ),
+        "exp": now + timedelta(minutes=min(settings.access_token_minutes, 15)),
         "iss": "dochub-api",
         "aud": "dochub",
     }
@@ -46,9 +43,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
             algorithms=[ALGORITHM],
             issuer="dochub-api",
             audience="dochub",
-            options={
-                "require": ["sub", "role", "sid", "exp", "iat"]
-            },
+            options={"require": ["sub", "role", "sid", "exp", "iat"]},
         )
 
     except jwt.PyJWTError as exc:
@@ -82,9 +77,7 @@ def _active_user(claims: dict) -> dict:
         expires_at = session[0].get("expires_at")
 
         if expires_at:
-            expiry = datetime.fromisoformat(
-                expires_at.replace("Z", "+00:00")
-            )
+            expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
 
             if expiry <= datetime.now(timezone.utc):
                 raise HTTPException(

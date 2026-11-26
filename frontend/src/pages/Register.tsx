@@ -1,196 +1,182 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  BookOpen,
-  User,
-  Mail,
-  Lock,
-  ArrowRight,
-  Loader2,
-} from "lucide-react";
-
+import { BookOpen, UserPlus } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-
+function apiMessage(error: unknown) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { detail?: unknown } } })
+      .response;
+    if (typeof response?.data?.detail === "string") return response.data.detail;
+  }
+  return "Registration failed. This email may already be registered.";
+}
 export default function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e: FormEvent) => {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setSubmitting(true);
-
-    try {
-      await register({ name, email, password });
-      navigate("/login");
-    } catch {
-      setError("Registration failed. Please check your information.");
-    } finally {
-      setSubmitting(false);
+    setMessage("");
+    if (password.length < 6) {
+      setError("Password must contain at least 6 characters.");
+      return;
     }
-  };
-
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await register({ name, email, password });
+      if (response.requires_email_confirmation) {
+        setMessage(
+          "Account created. Check your inbox to confirm your email, then sign in.",
+        );
+        setTimeout(
+          () =>
+            navigate("/login", {
+              replace: true,
+              state: { notice: "Confirm your email before signing in." },
+            }),
+          1200,
+        );
+      } else {
+        setMessage("Account created successfully.");
+        setTimeout(() => navigate("/dashboard", { replace: true }), 500);
+      }
+    } catch (err: unknown) {
+      setError(apiMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0B0C10] px-4 py-10">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-md space-y-6 rounded-2xl border border-[#45A29E]/20 bg-[#1F2833] p-8 shadow-xl"
-      >
-        {/* Logo and Heading */}
-        <div className="space-y-4 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-[#66FCF1]/10 text-[#66FCF1]">
-            <BookOpen size={28} />
-          </div>
-
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#C5C6C7]">
+    <div className="flex min-h-screen items-center justify-center bg-[#0B0C10] px-5 py-12 text-[#C5C6C7]">
+      <div className="w-full max-w-lg">
+        <Link
+          to="/"
+          className="mb-10 flex items-center justify-center gap-3 text-xl font-bold text-white"
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#66FCF1]/10 text-[#66FCF1]">
+            <BookOpen size={21} />
+          </span>
+          Doc<span className="text-[#66FCF1]">Hub</span>
+        </Link>
+        <div className="rounded-3xl border border-white/8 bg-[#11151c] p-7 shadow-2xl shadow-black/30 sm:p-9">
+          <div className="mb-7">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[.18em] text-[#45A29E]">
+              Get started
+            </p>
+            <h1 className="text-3xl font-bold text-white">
               Create your account
             </h1>
-            <p className="mt-2 text-sm text-[#C5C6C7]/60">
-              Join the DocHub community and start sharing knowledge.
+            <p className="mt-2 text-sm text-slate-500">
+              Join your team’s secure knowledge workspace.
             </p>
           </div>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div
-            role="alert"
-            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-          >
-            {error}
-          </div>
-        )}
-
-        {/* Form Fields */}
-        <div className="space-y-5">
-
-          {/* Full Name */}
-          <div className="space-y-2">
-            <label
-              htmlFor="name"
-              className="text-sm font-medium text-[#C5C6C7]"
-            >
-              Full name
-            </label>
-
-            <div className="relative">
-              <User
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#45A29E]"
-              />
-
+          {error && (
+            <p className="mb-4 rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm text-rose-300">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="mb-4 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-sm text-emerald-300">
+              {message}
+            </p>
+          )}
+          <form onSubmit={submit} className="space-y-4">
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-400">
+                Full name
+              </label>
               <input
-                id="name"
-                type="text"
-                placeholder="Enter your full name"
+                required
+                minLength={2}
+                maxLength={100}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-                required
-                className="w-full rounded-lg border border-[#45A29E]/25 bg-[#0B0C10] py-3 pl-10 pr-4 text-sm text-[#C5C6C7] outline-none transition placeholder:text-[#C5C6C7]/30 focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10"
+                placeholder="Your name"
+                className="w-full rounded-xl border border-white/10 bg-[#0B0C10] px-4 py-3 text-sm text-white outline-none focus:border-[#45A29E]"
               />
             </div>
-          </div>
-
-          {/* Email */}
-          <div className="space-y-2">
-            <label
-              htmlFor="email"
-              className="text-sm font-medium text-[#C5C6C7]"
-            >
-              Email address
-            </label>
-
-            <div className="relative">
-              <Mail
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#45A29E]"
-              />
-
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-400">
+                Email address
+              </label>
               <input
-                id="email"
                 type="email"
-                placeholder="you@example.com"
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-                required
-                className="w-full rounded-lg border border-[#45A29E]/25 bg-[#0B0C10] py-3 pl-10 pr-4 text-sm text-[#C5C6C7] outline-none transition placeholder:text-[#C5C6C7]/30 focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10"
+                placeholder="you@example.com"
+                className="w-full rounded-xl border border-white/10 bg-[#0B0C10] px-4 py-3 text-sm text-white outline-none focus:border-[#45A29E]"
               />
             </div>
-          </div>
-
-          {/* Password */}
-          <div className="space-y-2">
-            <label
-              htmlFor="password"
-              className="text-sm font-medium text-[#C5C6C7]"
-            >
-              Password
-            </label>
-
-            <div className="relative">
-              <Lock
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#45A29E]"
-              />
-
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-400">
+                Password
+              </label>
               <input
-                id="password"
                 type="password"
-                placeholder="Create a password"
+                required
+                minLength={6}
+                maxLength={128}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                required
-                className="w-full rounded-lg border border-[#45A29E]/25 bg-[#0B0C10] py-3 pl-10 pr-4 text-sm text-[#C5C6C7] outline-none transition placeholder:text-[#C5C6C7]/30 focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10"
+                placeholder="At least 6 characters"
+                className="w-full rounded-xl border border-white/10 bg-[#0B0C10] px-4 py-3 text-sm text-white outline-none focus:border-[#45A29E]"
               />
             </div>
-
-            <p className="text-xs text-[#C5C6C7]/40">
-              Password must contain at least 8 characters.
-            </p>
-          </div>
+            <div>
+              <label className="mb-2 block text-xs font-semibold text-slate-400">
+                Confirm password
+              </label>
+              <input
+                type="password"
+                required
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                placeholder="Repeat your password"
+                className="w-full rounded-xl border border-white/10 bg-[#0B0C10] px-4 py-3 text-sm text-white outline-none focus:border-[#45A29E]"
+              />
+            </div>
+            <div className="rounded-xl bg-white/[.03] p-3 text-xs leading-5 text-slate-500">
+              New accounts are assigned the{" "}
+              <span className="font-semibold text-slate-300">user</span> role.
+              Administrator privileges can only be granted by an existing
+              administrator.
+            </div>
+            <button
+              disabled={busy}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#66FCF1] px-4 py-3.5 text-sm font-bold text-[#0B0C10] disabled:opacity-50"
+            >
+              {busy ? (
+                "Creating account"
+              ) : (
+                <>
+                  Create account <UserPlus size={16} />
+                </>
+              )}
+            </button>
+          </form>
+          <p className="mt-7 text-center text-sm text-slate-500">
+            Already have an account?{" "}
+            <Link
+              to="/login"
+              className="font-semibold text-[#66FCF1] hover:underline"
+            >
+              Sign in
+            </Link>
+          </p>
         </div>
-
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#66FCF1] p-3 text-sm font-bold text-[#0B0C10] transition hover:bg-[#45A29E] disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submitting ? (
-            <>
-              <Loader2 size={18} className="animate-spin" />
-              Creating account...
-            </>
-          ) : (
-            <>
-              Create Account
-              <ArrowRight size={18} />
-            </>
-          )}
-        </button>
-
-        {/* Login Link */}
-        <p className="text-center text-sm text-[#C5C6C7]/60">
-          Already registered?{" "}
-          <Link
-            to="/login"
-            className="font-semibold text-[#66FCF1] transition hover:text-[#45A29E]"
-          >
-            Sign in
-          </Link>
-        </p>
-      </form>
-    </main>
+      </div>
+    </div>
   );
 }

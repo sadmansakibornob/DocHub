@@ -1,14 +1,12 @@
 from fastapi import FastAPI
-
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes.auth_route import router as auth_router
-from app.routes.user_route import router as user_router
+from app.routes.admin_route import router as admin_router
 from app.routes.article_route import router as article_router
+from app.routes.auth_route import router as auth_router
 from app.routes.category_route import router as category_router
 from app.routes.group_route import router as group_router
-from app.routes.admin_route import router as admin_router
-
+from app.routes.user_route import router as user_router
 
 app = FastAPI(
     title="DocHub API",
@@ -65,4 +63,3 @@ def health_check():
     return {
         "status": "healthy",
     }
-

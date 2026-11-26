@@ -1,13 +1,13 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.db import supabase
 from app.rbac import require_role
+from app.repositories import category_repository as category_repo
 from app.schemas.category_schema import (
     CategoryCreate,
-    CategoryUpdate,
     CategoryResponse,
+    CategoryUpdate,
 )
 
 router = APIRouter(
@@ -16,42 +16,42 @@ router = APIRouter(
 )
 
 
+# --------------------------------------------------
 # GET ALL CATEGORIES
 # Public endpoint
+# --------------------------------------------------
+
+
 @router.get("/", response_model=list[CategoryResponse])
 def get_all_categories():
-    response = (
-        supabase.table("categories")
-        .select("*")
-        .order("name")
-        .execute()
-    )
-
-    return response.data
+    return category_repo.get_all_categories()
 
 
+# --------------------------------------------------
 # GET CATEGORY BY ID
 # Public endpoint
+# --------------------------------------------------
+
+
 @router.get("/{category_id}", response_model=CategoryResponse)
 def get_category(category_id: int):
-    response = (
-        supabase.table("categories")
-        .select("*")
-        .eq("id", category_id)
-        .execute()
-    )
+    category = category_repo.get_category_by_id(category_id)
 
-    if not response.data:
+    if not category:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Category not found",
         )
 
-    return response.data[0]
+    return category
 
 
+# --------------------------------------------------
 # CREATE CATEGORY
 # Admin only
+# --------------------------------------------------
+
+
 @router.post(
     "/",
     response_model=CategoryResponse,
@@ -61,24 +61,23 @@ def create_category(
     category: CategoryCreate,
     current_user: dict = Depends(require_role("admin")),
 ):
-    response = (
-        supabase.table("categories")
-        .insert(category.model_dump())
-        .select("*")
-        .execute()
-    )
+    created = category_repo.create_category(category.model_dump())
 
-    if not response.data:
+    if not created:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Category creation failed",
         )
 
-    return response.data[0]
+    return created
 
 
+# --------------------------------------------------
 # UPDATE CATEGORY
 # Admin only
+# --------------------------------------------------
+
+
 @router.patch("/{category_id}", response_model=CategoryResponse)
 def update_category(
     category_id: int,
@@ -95,25 +94,26 @@ def update_category(
 
     updated_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    response = (
-        supabase.table("categories")
-        .update(updated_fields)
-        .eq("id", category_id)
-        .select("*")
-        .execute()
+    updated = category_repo.update_category(
+        category_id,
+        updated_fields,
     )
 
-    if not response.data:
+    if not updated:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Category not found",
         )
 
-    return response.data[0]
+    return updated
 
 
+# --------------------------------------------------
 # DELETE CATEGORY
 # Admin only
+# --------------------------------------------------
+
+
 @router.delete(
     "/{category_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -122,29 +122,16 @@ def delete_category(
     category_id: int,
     current_user: dict = Depends(require_role("admin")),
 ):
-    # Check whether articles are using this category
-    articles = (
-        supabase.table("articles")
-        .select("id")
-        .eq("category_id", category_id)
-        .limit(1)
-        .execute()
-    )
-
-    if articles.data:
+    # Prevent deletion if articles use this category.
+    if category_repo.category_has_articles(category_id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Cannot delete a category that is assigned to articles",
         )
 
-    response = (
-        supabase.table("categories")
-        .delete()
-        .eq("id", category_id)
-        .execute()
-    )
+    deleted = category_repo.delete_category(category_id)
 
-    if not response.data:
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Category not found",

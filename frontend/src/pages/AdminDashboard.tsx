@@ -1,782 +1,1244 @@
-
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  Activity,
+  ArrowDownToLine,
+  Ban,
   BookOpen,
-  FileText,
-  CheckCircle2,
-  FileEdit,
-  Clock3,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Shield,
+  ShieldAlert,
   Users,
-  FolderOpen,
-  Plus,
-  Pencil,
+  Layers3,
+  RefreshCw,
   Trash2,
-  Eye,
-  Save,
+  UserCheck,
   X,
-  LoaderCircle,
-  ShieldCheck,
-  UserRound,
-  Tag,
-  AlertCircle,
-  Check,
 } from "lucide-react";
 
-import articleService from "../services/articleService";
-import categoryService from "../services/categoryService";
-import authService from "../services/authService";
+import AppShell from "../components/layout/AppShell";
+import adminService, {
+  type AdminStats,
+  type ArticleStatus,
+} from "../services/adminService";
+import type { User, UserRole } from "../types/user";
+import type { Article } from "../types/article";
 
-import type { Article, ArticleStatus } from "../types/article";
-import type { Category } from "../types/category";
-import type { User } from "../types/user";
+type Tab = "overview" | "users" | "content" | "activity" | "security";
 
-type ArticleEditForm = {
-  title: string;
-  content: string;
-  category_id: string;
+const articleStatusTone: Record<string, string> = {
+  draft: "bg-amber-400/10 text-amber-300",
+  review: "bg-violet-400/10 text-violet-300",
+  published: "bg-emerald-400/10 text-emerald-300",
 };
 
-export default function AdminDashboard() {
-  const [articles, setArticles] = useState<Article[]>([]);
+export default function AdminDashboard({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
+  const [tab, setTab] = useState<Tab>("overview");
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [security, setSecurity] = useState<any>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
 
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [role, setRole] = useState("");
+  const [status, setStatus] = useState("");
+  const [articleStatus, setArticleStatus] = useState("");
+  const [logSearch, setLogSearch] = useState("");
+
+  const [selected, setSelected] = useState<string[]>([]);
+  const [selectedArticles, setSelectedArticles] = useState<number[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+
+  const [detail, setDetail] = useState<any>(null);
+  const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [newCategory, setNewCategory] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const [editingArticleId, setEditingArticleId] = useState<number | null>(
-    null
+  // Tracks which article is currently being updated.
+  const [updatingArticleId, setUpdatingArticleId] = useState<number | null>(
+    null,
   );
 
-  const [editForm, setEditForm] = useState<ArticleEditForm>({
-    title: "",
-    content: "",
-    category_id: "",
-  });
+  const limit = 20;
 
-  async function loadDashboard() {
+  async function loadStats() {
     try {
-      setError("");
+      setStats(await adminService.dashboard());
+    } catch {
+      setError("Unable to load administration data.");
+    }
+  }
 
-      const [articleData, userData, categoryData] = await Promise.all([
-        articleService.getAll(),
-        authService.getAllUsers(),
-        categoryService.getAll(),
+  async function loadUsers() {
+    setLoading(true);
+
+    try {
+      const r = await adminService.users({
+        search: search || undefined,
+        role: role || undefined,
+        status: status || undefined,
+        limit,
+        offset: page * limit,
+      });
+
+      setUsers(r.items);
+      setTotal(r.total);
+      setSelected([]);
+    } catch {
+      setError("Unable to load users. Verify administrator permissions.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadContent() {
+    setLoading(true);
+
+    try {
+      const [a, g] = await Promise.all([
+        adminService.articles({
+          status: articleStatus || undefined,
+          limit,
+          offset: page * limit,
+        }),
+        adminService.groups({
+          limit,
+          offset: page * limit,
+        }),
       ]);
 
-      setArticles(articleData);
-      setUsers(userData);
-      setCategories(categoryData);
+      setArticles(a.items);
+      setGroups(g.items);
+      setSelectedArticles([]);
+      setSelectedGroups([]);
+      setTotal(a.total + g.total);
     } catch {
-      setError("Could not load dashboard data. Check your admin permissions.");
+      setError("Unable to load moderation data.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadLogs() {
+    setLoading(true);
+
+    try {
+      const r = await adminService.audit({
+        search: logSearch || undefined,
+        limit,
+        offset: page * limit,
+      });
+
+      setLogs(r.items);
+      setTotal(r.total);
+    } catch {
+      setError("Unable to load audit log.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadSecurity() {
+    setLoading(true);
+
+    try {
+      setSecurity(await adminService.failedLogins());
+    } catch {
+      setError("Unable to load security events.");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadDashboard();
+    void loadStats();
   }, []);
 
-  function startEditing(article: Article) {
-    setEditingArticleId(article.id);
+  // Load the selected tab's data.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (tab === "users") void loadUsers();
+    if (tab === "content") void loadContent();
+    if (tab === "activity") void loadLogs();
+    if (tab === "security") void loadSecurity();
+  }, [tab, page, search, role, status, articleStatus, logSearch]);
 
-    setEditForm({
-      title: article.title,
-      content: article.content,
-      category_id: article.category_id
-        ? String(article.category_id)
-        : "",
-    });
-
-    setError("");
-    setSuccess("");
-  }
-
-  function cancelEditing() {
-    setEditingArticleId(null);
-
-    setEditForm({
-      title: "",
-      content: "",
-      category_id: "",
-    });
-  }
-
-  async function saveArticle(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (editingArticleId === null) return;
-
-    if (!editForm.title.trim() || !editForm.content.trim()) {
-      setError("Article title and content are required.");
-      return;
-    }
-
+  async function inspect(id: string) {
     try {
-      setSaving(true);
-      setError("");
-      setSuccess("");
-
-      await articleService.update(editingArticleId, {
-        title: editForm.title.trim(),
-        content: editForm.content.trim(),
-        category_id: editForm.category_id
-          ? Number(editForm.category_id)
-          : null,
-      });
-
-      cancelEditing();
-      setSuccess("Article updated successfully.");
-
-      await loadDashboard();
+      setDetail(await adminService.user(id));
     } catch {
-      setError("Could not update article.");
-    } finally {
-      setSaving(false);
+      setError("Unable to load user detail.");
     }
   }
 
-  async function changeStatus(id: number, status: ArticleStatus) {
+  async function changeRole(u: User, r: UserRole) {
     try {
-      setError("");
-      setSuccess("");
-
-      await articleService.update(id, { status });
-
-      setSuccess("Article status updated successfully.");
-      await loadDashboard();
-    } catch {
-      setError("Could not update article status.");
-    }
-  }
-
-  async function deleteArticle(id: number) {
-    if (!window.confirm("Delete this article permanently?")) return;
-
-    try {
-      setError("");
-      setSuccess("");
-
-      await articleService.delete(id);
-
-      if (editingArticleId === id) {
-        cancelEditing();
-      }
-
-      setSuccess("Article deleted successfully.");
-      await loadDashboard();
-    } catch {
-      setError("Could not delete article.");
-    }
-  }
-
-  async function changeUserRole(id: string, role: User["role"]) {
-    try {
-      setError("");
-      setSuccess("");
-
-      await authService.updateUser(id, { role });
-
-      setSuccess("User role updated successfully.");
-      await loadDashboard();
-    } catch {
-      setError("Could not update user role.");
-    }
-  }
-
-  async function deleteUser(id: string) {
-    if (!window.confirm("Delete this user permanently?")) return;
-
-    try {
-      setError("");
-      setSuccess("");
-
-      await authService.deleteUser(id);
-
-      setSuccess("User deleted successfully.");
-      await loadDashboard();
-    } catch {
-      setError("Could not delete user.");
-    }
-  }
-
-  async function createCategory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const categoryName = newCategory.trim();
-
-    if (!categoryName) return;
-
-    try {
-      setSaving(true);
-      setError("");
-      setSuccess("");
-
-      await categoryService.create({ name: categoryName });
-
-      setNewCategory("");
-      setSuccess("Category created successfully.");
-
-      await loadDashboard();
-    } catch {
-      setError("Could not create category.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteCategory(id: number) {
-    if (!window.confirm("Delete this category?")) return;
-
-    try {
-      setError("");
-      setSuccess("");
-
-      await categoryService.delete(id);
-
-      setSuccess("Category deleted successfully.");
-      await loadDashboard();
+      await adminService.role(u.id, r);
+      await loadUsers();
+      await loadStats();
     } catch {
       setError(
-        "Could not delete category. It may be assigned to existing articles."
+        "Role change rejected. You cannot change your own role or demote the last administrator.",
       );
     }
   }
 
-  const stats = {
-    total: articles.length,
-    published: articles.filter((article) => article.status === "published")
-      .length,
-    draft: articles.filter((article) => article.status === "draft").length,
-    review: articles.filter((article) => article.status === "review").length,
-    totalContributors: users.filter((user) => user.role === "contributor")
-      .length,
-  };
+  async function ban(u: User) {
+    if (u.role === "admin") return;
 
-  const statCards = [
-    {
-      label: "Total articles",
-      value: stats.total,
-      icon: BookOpen,
-    },
-    {
-      label: "Published",
-      value: stats.published,
-      icon: CheckCircle2,
-    },
-    {
-      label: "Drafts",
-      value: stats.draft,
-      icon: FileEdit,
-    },
-    {
-      label: "In review",
-      value: stats.review,
-      icon: Clock3,
-    },
-    {
-      label: "Contributors",
-      value: stats.totalContributors,
-      icon: Users,
-    },
-  ];
+    const why = reason.trim() || prompt("Reason for ban (required):") || "";
 
-  const inputStyle =
-    "w-full rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] px-4 py-2.5 text-sm text-[#C5C6C7] outline-none transition placeholder:text-[#C5C6C7]/35 focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10";
+    if (why.trim().length < 3) {
+      setError("A ban reason of at least 3 characters is required.");
+      return;
+    }
 
-  const selectStyle =
-    "rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] px-3 py-2.5 text-sm text-[#C5C6C7] outline-none transition focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10";
+    try {
+      await adminService.ban(u.id, why);
+      setReason("");
+      await loadUsers();
+      await loadStats();
 
-  const primaryButton =
-    "inline-flex items-center justify-center gap-2 rounded-lg bg-[#66FCF1] px-4 py-2.5 text-sm font-semibold text-[#0B0C10] transition hover:bg-[#45A29E] disabled:cursor-not-allowed disabled:opacity-50";
-
-  const secondaryButton =
-    "inline-flex items-center justify-center gap-2 rounded-lg border border-[#45A29E]/40 bg-[#1F2833] px-3 py-2 text-sm font-medium text-[#C5C6C7] transition hover:border-[#66FCF1]/60 hover:text-[#66FCF1]";
-
-  const dangerButton =
-    "inline-flex items-center justify-center gap-2 rounded-lg border border-red-400/25 bg-red-400/5 px-3 py-2 text-sm font-medium text-red-400 transition hover:border-red-400/60 hover:bg-red-400/10";
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0B0C10]">
-        <div className="flex flex-col items-center gap-4">
-          <LoaderCircle
-            size={30}
-            className="animate-spin text-[#66FCF1]"
-          />
-          <p className="text-sm text-[#C5C6C7]/60">
-            Loading admin dashboard...
-          </p>
-        </div>
-      </div>
-    );
+      if (detail?.id === u.id) await inspect(u.id);
+    } catch {
+      setError("Ban failed. Administrators cannot ban another administrator.");
+    }
   }
 
-  return (
-    <section className="min-h-screen bg-[#0B0C10] px-4 py-8 text-[#C5C6C7] sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        {/* Dashboard heading */}
-        <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[#66FCF1]">
-              <ShieldCheck size={17} />
-              Administration
-            </div>
+  async function unban(u: User) {
+    try {
+      await adminService.unban(u.id);
+      await loadUsers();
+      await loadStats();
+    } catch {
+      setError("Unban failed.");
+    }
+  }
 
-            <h1 className="text-3xl font-bold tracking-tight text-[#C5C6C7]">
-              Admin Dashboard
-            </h1>
+  async function bulkBan() {
+    const why = reason.trim();
 
-            <p className="mt-2 text-sm text-[#C5C6C7]/55">
-              Manage articles, contributors, and categories across DocHub.
-            </p>
-          </div>
+    if (selected.length === 0 || why.length < 3) {
+      setError(
+        "Select users and provide a ban reason (at least 3 characters).",
+      );
+      return;
+    }
 
-          <div className="flex w-fit items-center gap-2 rounded-lg border border-[#45A29E]/30 bg-[#1F2833] px-4 py-2.5">
-            <ShieldCheck size={17} className="text-[#66FCF1]" />
-            <span className="text-sm font-medium">Administrator</span>
-          </div>
+    try {
+      await adminService.bulkBan(selected, why);
+      setReason("");
+      await loadUsers();
+      await loadStats();
+    } catch {
+      setError(
+        "Bulk ban rejected. Your account and administrator accounts cannot be included.",
+      );
+    }
+  }
+
+  async function bulkUnban() {
+    if (!selected.length) return;
+
+    try {
+      await adminService.bulkUnban(selected);
+      await loadUsers();
+      await loadStats();
+    } catch {
+      setError("Bulk unban failed.");
+    }
+  }
+
+  // Update an article's publication status.
+  async function updateArticleStatus(
+    article: Article,
+    newStatus: ArticleStatus,
+  ) {
+    if (article.status === newStatus) return;
+
+    setUpdatingArticleId(article.id);
+    setError("");
+
+    try {
+      await adminService.updateArticleStatus(article.id, newStatus);
+
+      // Update the displayed article without reloading the entire dashboard.
+      setArticles((current) =>
+        current.map((item) =>
+          item.id === article.id ? { ...item, status: newStatus } : item,
+        ),
+      );
+    } catch {
+      setError(
+        `Could not update the status of article #${article.id}. Please try again.`,
+      );
+    } finally {
+      setUpdatingArticleId(null);
+    }
+  }
+
+  async function deleteArticle(id: number) {
+    if (!confirm("Permanently delete this record?")) return;
+
+    try {
+      await adminService.deleteArticle(id);
+      await loadContent();
+      await loadStats();
+    } catch {
+      setError("Could not delete record.");
+    }
+  }
+
+  async function deleteGroup(id: string) {
+    if (!confirm("Permanently delete this group?")) return;
+
+    try {
+      await adminService.deleteGroup(id);
+      await loadContent();
+      await loadStats();
+    } catch {
+      setError("Could not delete group.");
+    }
+  }
+
+  const tabs: [Tab, string, any][] = [
+    ["overview", "Overview", Activity],
+    ["users", "Users", Users],
+    ["content", "Content", BookOpen],
+    ["activity", "Audit log", Layers3],
+    ["security", "Security", ShieldAlert],
+  ];
+
+  const content = (
+    <div className="space-y-6">
+      {error && (
+        <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm text-rose-300">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError("")}>
+            <X size={15} />
+          </button>
         </div>
+      )}
 
-        {/* Feedback messages */}
-        {error && (
-          <div
-            role="alert"
-            className="mb-5 flex items-start gap-3 rounded-xl border border-red-400/25 bg-red-400/5 p-4 text-sm text-red-300"
+      {/* Dashboard tabs */}
+      <div className="flex flex-wrap gap-2 border-b border-white/8 pb-4">
+        {tabs.map(([id, label, Icon]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => {
+              setPage(0);
+              setTab(id);
+            }}
+            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${
+              tab === id
+                ? "bg-[#45A29E]/15 text-[#66FCF1]"
+                : "text-slate-400 hover:bg-white/5 hover:text-white"
+            }`}
           >
-            <AlertCircle size={19} className="mt-0.5 shrink-0" />
-            <p>{error}</p>
-          </div>
-        )}
+            <Icon size={15} />
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {success && (
-          <div
-            role="status"
-            className="mb-5 flex items-start gap-3 rounded-xl border border-[#45A29E]/40 bg-[#45A29E]/10 p-4 text-sm text-[#66FCF1]"
-          >
-            <Check size={19} className="mt-0.5 shrink-0" />
-            <p>{success}</p>
-          </div>
-        )}
-
-        {/* Dashboard statistics */}
-        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {statCards.map((item) => {
-            const Icon = item.icon;
-
-            return (
+      {/* Overview */}
+      {tab === "overview" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: "Total users", value: stats?.users_total, icon: Users },
+              {
+                label: "Banned users",
+                value: stats?.banned_users,
+                icon: Ban,
+              },
+              {
+                label: "Knowledge records",
+                value: stats?.records_total,
+                icon: BookOpen,
+              },
+              {
+                label: "Shared groups",
+                value: stats?.groups_total,
+                icon: Layers3,
+              },
+            ].map((x) => (
               <div
-                key={item.label}
-                className="rounded-xl border border-[#45A29E]/20 bg-[#1F2833] p-5 transition hover:border-[#66FCF1]/40"
+                key={x.label}
+                className="rounded-2xl border border-white/8 bg-[#11151c] p-5"
               >
-                <div className="mb-4 flex items-center justify-between">
-                  <span className="text-xs font-medium text-[#C5C6C7]/55">
-                    {item.label}
-                  </span>
-
-                  <Icon size={19} className="text-[#66FCF1]" />
+                <div className="flex items-center justify-between text-sm text-slate-400">
+                  <span>{x.label}</span>
+                  <x.icon size={17} className="text-[#45A29E]" />
                 </div>
-
-                <p className="text-3xl font-bold tracking-tight text-[#C5C6C7]">
-                  {item.value}
+                <p className="mt-4 text-3xl font-semibold text-white">
+                  {x.value ?? "—"}
                 </p>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
 
-        {/* Article management */}
-        <section className="mb-8 overflow-hidden rounded-xl border border-[#45A29E]/20 bg-[#1F2833]">
-          <div className="border-b border-[#45A29E]/20 p-5">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-[#66FCF1]/10 p-2.5">
-                <BookOpen size={20} className="text-[#66FCF1]" />
-              </div>
+          <div className="rounded-2xl border border-white/8 bg-[#11151c] p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="font-semibold text-white">
+                New activity · last 7 days
+              </h3>
+              <button
+                type="button"
+                onClick={() => void loadStats()}
+                className="rounded-lg p-2 text-slate-400 hover:bg-white/5"
+              >
+                <RefreshCw size={15} />
+              </button>
+            </div>
 
-              <div>
-                <h2 className="font-semibold text-[#C5C6C7]">
-                  Article management
-                </h2>
-                <p className="mt-1 text-xs text-[#C5C6C7]/50">
-                  Read, edit, delete, and manage publication status.
-                </p>
-              </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {[
+                { label: "New users", value: stats?.new_users_7d },
+                { label: "New records", value: stats?.new_records_7d },
+                { label: "New groups", value: stats?.new_groups_7d },
+              ].map((x) => (
+                <div key={x.label} className="rounded-xl bg-white/[.03] p-4">
+                  <p className="text-xs text-slate-500">{x.label}</p>
+                  <p className="mt-2 text-2xl font-semibold text-[#66FCF1]">
+                    {x.value ?? "—"}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
+        </>
+      )}
 
-          <div className="divide-y divide-[#45A29E]/15">
-            {articles.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 p-10 text-center">
-                <FileText size={30} className="text-[#45A29E]" />
-                <p className="text-sm text-[#C5C6C7]/55">
-                  No articles available.
-                </p>
-              </div>
-            ) : (
-              articles.map((article) => (
-                <div
-                  key={article.id}
-                  className="p-5 transition hover:bg-[#0B0C10]/20"
-                >
-                  {editingArticleId === article.id ? (
-                    <form onSubmit={saveArticle} className="space-y-5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Pencil size={17} className="text-[#66FCF1]" />
-                          <h3 className="font-semibold text-[#C5C6C7]">
-                            Edit article
-                          </h3>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={cancelEditing}
-                          className="rounded-lg p-2 text-[#C5C6C7]/50 transition hover:bg-[#0B0C10] hover:text-[#66FCF1]"
-                          aria-label="Close editor"
-                        >
-                          <X size={19} />
-                        </button>
-                      </div>
-
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-[#C5C6C7]">
-                          Article title
-                        </label>
-
-                        <input
-                          value={editForm.title}
-                          onChange={(event) =>
-                            setEditForm({
-                              ...editForm,
-                              title: event.target.value,
-                            })
-                          }
-                          placeholder="Article title"
-                          className={inputStyle}
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-[#C5C6C7]">
-                          Article content
-                        </label>
-
-                        <textarea
-                          value={editForm.content}
-                          onChange={(event) =>
-                            setEditForm({
-                              ...editForm,
-                              content: event.target.value,
-                            })
-                          }
-                          placeholder="Write article content..."
-                          rows={10}
-                          className={`${inputStyle} resize-y`}
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-[#C5C6C7]">
-                          Category
-                        </label>
-
-                        <select
-                          value={editForm.category_id}
-                          onChange={(event) =>
-                            setEditForm({
-                              ...editForm,
-                              category_id: event.target.value,
-                            })
-                          }
-                          className={inputStyle}
-                        >
-                          <option value="">No category</option>
-
-                          {categories.map((category) => (
-                            <option key={category.id} value={category.id}>
-                              {category.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex flex-wrap gap-3">
-                        <button
-                          type="submit"
-                          disabled={saving}
-                          className={primaryButton}
-                        >
-                          {saving ? (
-                            <LoaderCircle size={16} className="animate-spin" />
-                          ) : (
-                            <Save size={16} />
-                          )}
-                          {saving ? "Saving..." : "Save changes"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={cancelEditing}
-                          className={secondaryButton}
-                        >
-                          <X size={16} />
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-                      <div className="min-w-0">
-                        <Link
-                          to={`/articles/${article.id}`}
-                          className="inline-flex items-center gap-2 font-semibold text-[#C5C6C7] transition hover:text-[#66FCF1]"
-                        >
-                          {article.title}
-                          <Eye size={15} className="opacity-50" />
-                        </Link>
-
-                        <p className="mt-1 text-xs text-[#C5C6C7]/45">
-                          Article #{article.id} · Author {article.author_id}
-                        </p>
-
-                        <span
-                          className={`mt-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-                            article.status === "published"
-                              ? "border-[#45A29E]/40 bg-[#45A29E]/10 text-[#66FCF1]"
-                              : article.status === "review"
-                                ? "border-[#66FCF1]/20 bg-[#66FCF1]/5 text-[#C5C6C7]"
-                                : "border-[#C5C6C7]/15 bg-[#0B0C10]/40 text-[#C5C6C7]/60"
-                          }`}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                          {article.status}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <select
-                          value={article.status}
-                          onChange={(event) =>
-                            void changeStatus(
-                              article.id,
-                              event.target.value as ArticleStatus
-                            )
-                          }
-                          className={selectStyle}
-                          aria-label={`Change status of ${article.title}`}
-                        >
-                          <option value="draft">Draft</option>
-                          <option value="review">Review</option>
-                          <option value="published">Published</option>
-                        </select>
-
-                        <button
-                          type="button"
-                          onClick={() => startEditing(article)}
-                          className={secondaryButton}
-                        >
-                          <Pencil size={15} />
-                          Edit
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void deleteArticle(article.id)}
-                          className={dangerButton}
-                        >
-                          <Trash2 size={15} />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        {/* User management */}
-        <section className="mb-8 overflow-hidden rounded-xl border border-[#45A29E]/20 bg-[#1F2833]">
-          <div className="border-b border-[#45A29E]/20 p-5">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-[#66FCF1]/10 p-2.5">
-                <Users size={20} className="text-[#66FCF1]" />
-              </div>
-
-              <div>
-                <h2 className="font-semibold text-[#C5C6C7]">
-                  User management
-                </h2>
-                <p className="mt-1 text-xs text-[#C5C6C7]/50">
-                  Manage user accounts and assign access roles.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="divide-y divide-[#45A29E]/15">
-            {users.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 p-10 text-center">
-                <Users size={30} className="text-[#45A29E]" />
-                <p className="text-sm text-[#C5C6C7]/55">
-                  No users available.
-                </p>
-              </div>
-            ) : (
-              users.map((user) => (
-                <div
-                  key={user.id}
-                  className="flex flex-col justify-between gap-4 p-5 transition hover:bg-[#0B0C10]/20 sm:flex-row sm:items-center"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#45A29E]/30 bg-[#0B0C10]">
-                      <UserRound size={19} className="text-[#66FCF1]" />
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-[#C5C6C7]">
-                        {user.name}
-                      </p>
-                      <p className="truncate text-sm text-[#C5C6C7]/50">
-                        {user.email}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <select
-                      value={user.role}
-                      onChange={(event) =>
-                        void changeUserRole(
-                          user.id,
-                          event.target.value as User["role"]
-                        )
-                      }
-                      className={selectStyle}
-                      aria-label={`Change role of ${user.name}`}
-                    >
-                      <option value="reader">Reader</option>
-                      <option value="contributor">Contributor</option>
-                      <option value="admin">Admin</option>
-                    </select>
-
-                    <button
-                      type="button"
-                      onClick={() => void deleteUser(user.id)}
-                      className={dangerButton}
-                    >
-                      <Trash2 size={15} />
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        {/* Category management */}
-        <section className="overflow-hidden rounded-xl border border-[#45A29E]/20 bg-[#1F2833]">
-          <div className="border-b border-[#45A29E]/20 p-5">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-[#66FCF1]/10 p-2.5">
-                <FolderOpen size={20} className="text-[#66FCF1]" />
-              </div>
-
-              <div>
-                <h2 className="font-semibold text-[#C5C6C7]">
-                  Category management
-                </h2>
-                <p className="mt-1 text-xs text-[#C5C6C7]/50">
-                  Create and manage categories for organizing articles.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <form
-            onSubmit={createCategory}
-            className="flex flex-col gap-3 border-b border-[#45A29E]/15 p-5 sm:flex-row"
-          >
-            <div className="relative min-w-0 flex-1">
-              <Tag
-                size={17}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#45A29E]"
+      {/* Users */}
+      {tab === "users" && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <div className="relative min-w-[220px] flex-1">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
               />
+              <input
+                value={search}
+                onChange={(e) => {
+                  setPage(0);
+                  setSearch(e.target.value);
+                }}
+                placeholder="Search name or email"
+                className="w-full rounded-xl border border-white/10 bg-[#11151c] py-2.5 pl-9 pr-3 text-sm outline-none focus:border-[#45A29E]"
+              />
+            </div>
+
+            <select
+              value={role}
+              onChange={(e) => {
+                setPage(0);
+                setRole(e.target.value);
+              }}
+              className="rounded-xl border border-white/10 bg-[#11151c] px-3 py-2 text-sm"
+            >
+              <option value="">All roles</option>
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+
+            <select
+              value={status}
+              onChange={(e) => {
+                setPage(0);
+                setStatus(e.target.value);
+              }}
+              className="rounded-xl border border-white/10 bg-[#11151c] px-3 py-2 text-sm"
+            >
+              <option value="">All status</option>
+              <option value="active">Active</option>
+              <option value="banned">Banned</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={() =>
+                void adminService.export("users", { role, status })
+              }
+              className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5"
+            >
+              <ArrowDownToLine size={15} />
+              CSV
+            </button>
+          </div>
+
+          {selected.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[#45A29E]/20 bg-[#45A29E]/5 p-3">
+              <span className="mr-auto text-sm text-slate-300">
+                {selected.length} selected
+              </span>
 
               <input
-                value={newCategory}
-                onChange={(event) => setNewCategory(event.target.value)}
-                placeholder="Enter category name"
-                className={`${inputStyle} pl-10`}
-                required
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Ban reason (required)"
+                className="min-w-[180px] rounded-lg border border-white/10 bg-[#0B0C10] px-3 py-2 text-xs"
               />
+
+              <button
+                type="button"
+                onClick={() => void bulkBan()}
+                className="rounded-lg bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-300"
+              >
+                Bulk ban
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void bulkUnban()}
+                className="rounded-lg bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-300"
+              >
+                Bulk unban
+              </button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-2xl border border-white/8 bg-[#11151c]">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-white/8 text-xs uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="p-4">
+                    <input
+                      type="checkbox"
+                      checked={
+                        users.length > 0 && selected.length === users.length
+                      }
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked ? users.map((u) => u.id) : [],
+                        )
+                      }
+                    />
+                  </th>
+                  <th className="p-4">User</th>
+                  <th className="p-4">Role</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4">Joined</th>
+                  <th className="p-4">Actions</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-white/6">
+                {users.map((u) => (
+                  <tr key={u.id} className="hover:bg-white/[.02]">
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(u.id)}
+                        onChange={(e) =>
+                          setSelected((s) =>
+                            e.target.checked
+                              ? [...s, u.id]
+                              : s.filter((x) => x !== u.id),
+                          )
+                        }
+                      />
+                    </td>
+
+                    <td className="p-4">
+                      <button
+                        type="button"
+                        onClick={() => void inspect(u.id)}
+                        className="text-left"
+                      >
+                        <p className="font-medium text-white hover:text-[#66FCF1]">
+                          {u.name}
+                        </p>
+                        <p className="text-xs text-slate-500">{u.email}</p>
+                      </button>
+                    </td>
+
+                    <td className="p-4">
+                      <select
+                        value={u.role}
+                        onChange={(e) =>
+                          void changeRole(u, e.target.value as UserRole)
+                        }
+                        className="rounded-lg border border-white/10 bg-[#0B0C10] px-2 py-1.5 text-xs"
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    </td>
+
+                    <td className="p-4">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs ${
+                          u.is_banned
+                            ? "bg-rose-400/10 text-rose-300"
+                            : "bg-emerald-400/10 text-emerald-300"
+                        }`}
+                      >
+                        {u.is_banned ? "Banned" : "Active"}
+                      </span>
+                    </td>
+
+                    <td className="p-4 text-xs text-slate-500">
+                      {u.created_at
+                        ? new Date(u.created_at).toLocaleDateString()
+                        : "—"}
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex gap-2">
+                        {u.is_banned ? (
+                          <button
+                            type="button"
+                            onClick={() => void unban(u)}
+                            className="rounded-lg p-2 text-emerald-300 hover:bg-emerald-400/10"
+                            title="Unban"
+                          >
+                            <UserCheck size={15} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={u.role === "admin"}
+                            onClick={() => void ban(u)}
+                            className="rounded-lg p-2 text-rose-300 hover:bg-rose-400/10 disabled:opacity-30"
+                            title="Ban"
+                          >
+                            <Ban size={15} />
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => void inspect(u.id)}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white/5"
+                          title="Details"
+                        >
+                          <Search size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {loading && (
+              <p className="p-5 text-center text-sm text-slate-500">Loading…</p>
+            )}
+
+            {!loading && !users.length && (
+              <p className="p-8 text-center text-sm text-slate-500">
+                No users match these filters.
+              </p>
+            )}
+          </div>
+
+          <Pager page={page} total={total} limit={limit} setPage={setPage} />
+        </>
+      )}
+
+      {/* Content management */}
+      {tab === "content" && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400">Record status</span>
+              <select
+                value={articleStatus}
+                onChange={(e) => {
+                  setPage(0);
+                  setArticleStatus(e.target.value);
+                }}
+                className="rounded-xl border border-white/10 bg-[#11151c] px-3 py-2 text-sm"
+              >
+                <option value="">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="review">Review</option>
+                <option value="published">Published</option>
+              </select>
             </div>
 
             <button
-              type="submit"
-              disabled={saving}
-              className={primaryButton}
+              type="button"
+              onClick={() =>
+                void adminService.export("articles", { status: articleStatus })
+              }
+              className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300"
             >
-              {saving ? (
-                <LoaderCircle size={16} className="animate-spin" />
-              ) : (
-                <Plus size={17} />
-              )}
-              {saving ? "Adding..." : "Add category"}
+              <ArrowDownToLine size={15} />
+              Export records
             </button>
-          </form>
+          </div>
 
-          <div className="divide-y divide-[#45A29E]/15">
-            {categories.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 p-10 text-center">
-                <FolderOpen size={30} className="text-[#45A29E]" />
-                <p className="text-sm text-[#C5C6C7]/55">
-                  No categories available.
+          {/* Article list */}
+          <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-white">Knowledge records</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Review article content and monitor publication status.
                 </p>
               </div>
-            ) : (
-              categories.map((category) => (
-                <div
-                  key={category.id}
-                  className="flex items-center justify-between gap-3 p-5 transition hover:bg-[#0B0C10]/20"
-                >
-                  <div className="flex items-center gap-3">
-                    <Tag size={17} className="text-[#45A29E]" />
-                    <span className="text-sm font-medium text-[#C5C6C7]">
-                      {category.name}
-                    </span>
+
+              <button
+                type="button"
+                disabled={!selectedArticles.length}
+                onClick={async () => {
+                  if (
+                    !confirm(
+                      `Delete ${selectedArticles.length} selected records?`,
+                    )
+                  ) {
+                    return;
+                  }
+
+                  try {
+                    await adminService.bulkDeleteArticles(selectedArticles);
+                    await loadContent();
+                    await loadStats();
+                  } catch {
+                    setError("Bulk record deletion failed.");
+                  }
+                }}
+                className="rounded-lg border border-rose-300/20 px-3 py-2 text-xs text-rose-300 disabled:opacity-30"
+              >
+                Delete selected ({selectedArticles.length})
+              </button>
+            </div>
+
+            <div className="divide-y divide-white/6">
+              {articles.map((a) => {
+                const currentStatus = String(a.status).toLowerCase();
+                const isUpdating = updatingArticleId === a.id;
+
+                return (
+                  <div
+                    key={a.id}
+                    className="flex flex-wrap items-center gap-3 py-4"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedArticles.includes(a.id)}
+                      onChange={(e) =>
+                        setSelectedArticles((v) =>
+                          e.target.checked
+                            ? [...v, a.id]
+                            : v.filter((x) => x !== a.id),
+                        )
+                      }
+                    />
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-white">
+                        {a.title}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Article #{a.id} · Author: {a.author_id}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
+                          articleStatusTone[currentStatus] ??
+                          "bg-slate-400/10 text-slate-300"
+                        }`}
+                      >
+                        {a.status}
+                      </span>
+
+                      <select
+                        aria-label={`Change status of article ${a.id}`}
+                        value={currentStatus}
+                        disabled={isUpdating}
+                        onChange={(e) =>
+                          void updateArticleStatus(
+                            a,
+                            e.target.value as ArticleStatus,
+                          )
+                        }
+                        className="rounded-lg border border-white/10 bg-[#0B0C10] px-3 py-2 text-xs text-slate-200 outline-none transition hover:border-[#45A29E] focus:border-[#45A29E] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="draft">Draft</option>
+                        <option value="review">Review</option>
+                        <option value="published">Published</option>
+                      </select>
+
+                      {isUpdating && (
+                        <RefreshCw
+                          size={14}
+                          className="animate-spin text-[#66FCF1]"
+                          aria-label="Saving status"
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/articles/${a.id}`}
+                        title="Read article"
+                        className="inline-flex items-center gap-2 rounded-lg border border-[#45A29E]/30 bg-[#45A29E]/5 px-3 py-2 text-xs font-semibold text-[#66FCF1] hover:bg-[#45A29E]/15"
+                      >
+                        <BookOpen size={14} />
+                        Read
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={() => void deleteArticle(a.id)}
+                        title="Delete article"
+                        className="rounded-lg p-2 text-rose-300 hover:bg-rose-400/10"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!articles.length && (
+                <p className="py-5 text-sm text-slate-500">No records found.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Shared groups */}
+          <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold text-white">Shared groups</h3>
+
+              <button
+                type="button"
+                disabled={!selectedGroups.length}
+                onClick={async () => {
+                  if (
+                    !confirm(`Delete ${selectedGroups.length} selected groups?`)
+                  ) {
+                    return;
+                  }
+
+                  try {
+                    await adminService.bulkDeleteGroups(selectedGroups);
+                    await loadContent();
+                    await loadStats();
+                  } catch {
+                    setError("Bulk group deletion failed.");
+                  }
+                }}
+                className="rounded-lg border border-rose-300/20 px-3 py-2 text-xs text-rose-300 disabled:opacity-30"
+              >
+                Delete selected ({selectedGroups.length})
+              </button>
+            </div>
+
+            <div className="divide-y divide-white/6">
+              {groups.map((g) => (
+                <div key={g.id} className="flex items-center gap-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedGroups.includes(g.id)}
+                    onChange={(e) =>
+                      setSelectedGroups((v) =>
+                        e.target.checked
+                          ? [...v, g.id]
+                          : v.filter((x) => x !== g.id),
+                      )
+                    }
+                  />
+
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-white">{g.name}</p>
+                    <p className="text-xs text-slate-500">{g.id}</p>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => void deleteCategory(category.id)}
-                    className={dangerButton}
+                    onClick={() => void deleteGroup(g.id)}
+                    className="rounded-lg p-2 text-rose-300 hover:bg-rose-400/10"
                   >
                     <Trash2 size={15} />
-                    Delete
                   </button>
                 </div>
-              ))
+              ))}
+
+              {!groups.length && (
+                <p className="py-5 text-sm text-slate-500">No groups found.</p>
+              )}
+            </div>
+          </div>
+
+          <Pager page={page} total={total} limit={limit} setPage={setPage} />
+        </>
+      )}
+
+      {/* Audit log */}
+      {tab === "activity" && (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <div className="relative flex-1">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+              />
+              <input
+                value={logSearch}
+                onChange={(e) => {
+                  setPage(0);
+                  setLogSearch(e.target.value);
+                }}
+                placeholder="Filter by action"
+                className="w-full rounded-xl border border-white/10 bg-[#11151c] py-2.5 pl-9 pr-3 text-sm outline-none focus:border-[#45A29E]"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void adminService.export("activity")}
+              className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm"
+            >
+              <ArrowDownToLine size={15} />
+              Export activity
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-white/8 bg-[#11151c]">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-white/8 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="p-4">Action</th>
+                  <th className="p-4">Actor</th>
+                  <th className="p-4">Target</th>
+                  <th className="p-4">IP address</th>
+                  <th className="p-4">Browser / device</th>
+                  <th className="p-4">Timestamp</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-white/6">
+                {logs.map((l, i) => (
+                  <tr key={l.id || i}>
+                    <td className="p-4 font-medium text-[#66FCF1]">
+                      {l.action}
+                    </td>
+                    <td className="p-4 text-xs text-slate-400">
+                      {l.actor_id || "System"}
+                    </td>
+                    <td className="p-4 text-xs text-slate-400">
+                      {l.target_type || "—"} {l.target_id || ""}
+                    </td>
+                    <td className="p-4 text-xs text-slate-400">
+                      {l.ip_address || "—"}
+                    </td>
+                    <td className="max-w-[220px] truncate p-4 text-xs text-slate-500">
+                      {l.user_agent || "—"}
+                    </td>
+                    <td className="p-4 text-xs text-slate-500">
+                      {l.created_at
+                        ? new Date(l.created_at).toLocaleString()
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {!logs.length && (
+              <p className="p-8 text-center text-sm text-slate-500">
+                No audit events found.
+              </p>
             )}
           </div>
-        </section>
 
-        {/* Footer */}
-        <div className="mt-8 flex items-center justify-center gap-2 text-xs text-[#C5C6C7]/30">
-          <ShieldCheck size={14} />
-          DocHub Administration
+          <Pager page={page} total={total} limit={limit} setPage={setPage} />
+        </>
+      )}
+
+      {/* Security */}
+      {tab === "security" && (
+        <>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+              <h3 className="mb-4 flex items-center gap-2 font-semibold text-white">
+                <ShieldAlert size={17} className="text-amber-300" />
+                Failed logins by IP
+              </h3>
+
+              {Object.entries(security?.by_ip || {})
+                .sort((a: any, b: any) => b[1] - a[1])
+                .map(([ip, n]) => (
+                  <div
+                    key={ip}
+                    className="flex justify-between border-b border-white/6 py-3 text-sm"
+                  >
+                    <span className="text-slate-300">{ip}</span>
+                    <span className="font-semibold text-amber-300">
+                      {String(n)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+
+            <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+              <h3 className="mb-4 flex items-center gap-2 font-semibold text-white">
+                <Shield size={17} className="text-rose-300" />
+                Failed logins by account
+              </h3>
+
+              {Object.entries(security?.by_account || {})
+                .sort((a: any, b: any) => b[1] - a[1])
+                .map(([email, n]) => (
+                  <div
+                    key={email}
+                    className="flex justify-between border-b border-white/6 py-3 text-sm"
+                  >
+                    <span className="text-slate-300">{email}</span>
+                    <span className="font-semibold text-rose-300">
+                      {String(n)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+            <h3 className="mb-3 font-semibold text-white">
+              Recent failed login attempts
+            </h3>
+
+            <div className="divide-y divide-white/6">
+              {(security?.events || []).map((e: any, i: number) => (
+                <div
+                  key={i}
+                  className="flex flex-wrap justify-between gap-2 py-3 text-xs"
+                >
+                  <span className="text-slate-300">
+                    {e.email || "Unknown account"} ·{" "}
+                    {e.ip_address || "Unknown IP"}
+                  </span>
+
+                  <span className="text-slate-500">
+                    {e.attempted_at
+                      ? new Date(e.attempted_at).toLocaleString()
+                      : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const pageContent = (
+    <>
+      {content}
+
+      {/* User detail modal */}
+      {detail && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setDetail(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/10 bg-[#11151c] p-6"
+          >
+            <div className="mb-5 flex items-start justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-[#45A29E]">
+                  User detail
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-white">
+                  {detail.name}
+                </h2>
+                <p className="text-sm text-slate-400">{detail.email}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDetail(null)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-white/5"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Info label="Role" value={detail.role} />
+              <Info
+                label="Status"
+                value={detail.is_banned ? "Banned" : "Active"}
+              />
+              <Info
+                label="Created"
+                value={
+                  detail.created_at
+                    ? new Date(detail.created_at).toLocaleDateString()
+                    : "—"
+                }
+              />
+            </div>
+
+            {detail.ban_reason && (
+              <p className="mt-4 rounded-lg bg-rose-400/5 p-3 text-sm text-rose-300">
+                Ban reason: {detail.ban_reason}
+              </p>
+            )}
+
+            <div className="mt-6 grid gap-5 md:grid-cols-2">
+              <DetailList
+                title="Recent records"
+                rows={detail.records || []}
+                render={(x: any) => `${x.title} · ${x.status}`}
+              />
+
+              <DetailList
+                title="Group memberships"
+                rows={detail.groups || []}
+                render={(x: any) => `${x.name} · ${x.id}`}
+              />
+
+              <DetailList
+                title="Sessions"
+                rows={detail.sessions || []}
+                render={(x: any) =>
+                  `${x.created_at || "Session"} · ${x.ip_address || "Unknown IP"} · ${x.user_agent || "Unknown device"}`
+                }
+              />
+
+              <DetailList
+                title="Recent activity"
+                rows={detail.recent_activity || []}
+                render={(x: any) => `${x.action} · ${x.created_at || ""}`}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await adminService.revokeSessions(detail.id);
+                  await inspect(detail.id);
+                } catch {
+                  setError("Could not revoke sessions.");
+                }
+              }}
+              className="mt-5 rounded-lg border border-rose-300/20 px-4 py-2 text-sm text-rose-300 hover:bg-rose-300/10"
+            >
+              Revoke all sessions
+            </button>
+          </div>
         </div>
+      )}
+    </>
+  );
+
+  return embedded ? (
+    pageContent
+  ) : (
+    <AppShell
+      title="Administration"
+      description="Manage platform access, content moderation, and security activity."
+    >
+      {pageContent}
+    </AppShell>
+  );
+}
+
+function Pager({
+  page,
+  total,
+  limit,
+  setPage,
+}: {
+  page: number;
+  total: number;
+  limit: number;
+  setPage: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between text-xs text-slate-500">
+      <span>
+        {total} results · page {page + 1} of{" "}
+        {Math.max(1, Math.ceil(total / limit))}
+      </span>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => setPage(page - 1)}
+          className="rounded-lg border border-white/10 p-2 disabled:opacity-30"
+        >
+          <ChevronLeft size={15} />
+        </button>
+
+        <button
+          type="button"
+          disabled={(page + 1) * limit >= total}
+          onClick={() => setPage(page + 1)}
+          className="rounded-lg border border-white/10 p-2 disabled:opacity-30"
+        >
+          <ChevronRight size={15} />
+        </button>
       </div>
-    </section>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-white/[.03] p-3">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-medium capitalize text-white">{value}</p>
+    </div>
+  );
+}
+
+function DetailList({
+  title,
+  rows,
+  render,
+}: {
+  title: string;
+  rows: any[];
+  render: (x: any) => string;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-white">
+        {title} ({rows.length})
+      </h3>
+
+      <div className="max-h-40 space-y-2 overflow-y-auto">
+        {rows.map((x, i) => (
+          <p
+            key={x.id || i}
+            className="rounded-lg bg-white/[.03] p-2 text-xs text-slate-400"
+          >
+            {render(x)}
+          </p>
+        ))}
+
+        {!rows.length && (
+          <p className="text-xs text-slate-600">No data available.</p>
+        )}
+      </div>
+    </div>
   );
 }

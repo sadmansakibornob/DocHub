@@ -1,4 +1,3 @@
-
 export type ArticleStatus = "draft" | "review" | "published";
 
 export interface Article {

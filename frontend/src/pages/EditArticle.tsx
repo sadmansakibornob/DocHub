@@ -1,300 +1,155 @@
-
-import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import {
-  ArrowLeft,
-  FileEdit,
-  FileText,
-  Tag,
-  Save,
-  X,
-  Loader2,
-  AlertCircle,
-  BookOpen,
-} from "lucide-react";
-
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Save } from "lucide-react";
+import AppShell from "../components/layout/AppShell";
+import MarkdownEditor from "../components/MarkdownEditor";
 import articleService from "../services/articleService";
 import categoryService from "../services/categoryService";
-import MarkdownEditor from "../components/MarkdownEditor";
-
-import type { Article, ArticleUpdate } from "../types/article";
 import type { Category } from "../types/category";
-
+import { useAuth } from "../contexts/AuthContext";
 export default function EditArticle() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams();
+  const isNew = !id || id === "new";
   const navigate = useNavigate();
-
-  const [article, setArticle] = useState<Article | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-
+  const { user } = useAuth();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [categoryId, setCategoryId] = useState("");
-
-  const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
   useEffect(() => {
-    async function loadData() {
-      if (!id || !Number.isSafeInteger(Number(id)) || Number(id) <= 0) {
-        setError("Invalid article ID.");
-        setLoading(false);
-        return;
-      }
-
+    let live = true;
+    (async () => {
       try {
-        const [articleData, categoryData] = await Promise.all([
-          articleService.getById(Number(id)),
-          categoryService.getAll(),
-        ]);
-
-        setArticle(articleData);
-        setCategories(categoryData);
-
-        setTitle(articleData.title);
-        setContent(articleData.content || "");
-        setCategoryId(
-          articleData.category_id != null
-            ? String(articleData.category_id)
-            : ""
-        );
+        const cats = await categoryService.getAll();
+        if (live) setCategories(cats);
+        if (!isNew) {
+          const a = await articleService.getById(Number(id));
+          if (a.author_id !== user?.id && user?.role !== "admin") {
+            setError("You do not have permission to edit this record.");
+            return;
+          }
+          if (live) {
+            setTitle(a.title);
+            setContent(a.content);
+            setCategoryId(a.category_id ? String(a.category_id) : "");
+          }
+        }
       } catch {
-        setError("Could not load article. Check your permissions.");
+        if (live)
+          setError(
+            "Could not load the record. It may not exist or you may not have access.",
+          );
       } finally {
-        setLoading(false);
+        if (live) setLoading(false);
       }
-    }
-
-    void loadData();
-  }, [id]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!article) return;
-
-    if (!title.trim() || !content.trim()) {
-      setError("Title and content are required.");
+    })();
+    return () => {
+      live = false;
+    };
+  }, [id, isNew, user?.id, user?.role]);
+  async function save() {
+    setError("");
+    if (title.trim().length < 3 || !content.trim()) {
+      setError("Enter a title (at least 3 characters) and some content.");
       return;
     }
-
+    setSaving(true);
     try {
-      setSaving(true);
-      setError("");
-
-      const updateData: ArticleUpdate = {
+      const payload = {
         title: title.trim(),
         content,
         category_id: categoryId ? Number(categoryId) : null,
       };
-
-      await articleService.update(article.id, updateData);
-
-      navigate("/dashboard");
-    } catch {
+      const a = isNew
+        ? await articleService.create(payload)
+        : await articleService.update(Number(id), payload);
+      navigate(`/articles/${a.id}`, { replace: true });
+    } catch (e: any) {
       setError(
-        "Could not save changes. Check your permissions and try again."
+        e?.response?.data?.detail ||
+          "Could not save. Check your permissions and try again.",
       );
     } finally {
       setSaving(false);
     }
   }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center gap-3 text-[#C5C6C7]/60">
-        <Loader2 size={21} className="animate-spin text-[#66FCF1]" />
-        <span className="text-sm">Loading editor...</span>
-      </div>
-    );
-  }
-
-  if (!article) {
-    return (
-      <div className="mx-auto max-w-5xl px-5 py-12 sm:px-6">
-        <div className="rounded-xl border border-[#45A29E]/25 bg-[#1F2833] p-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#45A29E]/15 text-[#66FCF1]">
-            <AlertCircle size={24} />
-          </div>
-
-          <h2 className="font-semibold text-[#C5C6C7]">
-            Unable to open editor
-          </h2>
-
-          <p className="mt-2 text-sm text-[#C5C6C7]/55">
-            {error || "Article not found."}
-          </p>
-
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#66FCF1] px-5 py-2.5 text-sm font-semibold text-[#0B0C10] transition hover:bg-[#45A29E] hover:text-white"
-          >
-            <ArrowLeft size={16} />
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 text-[#C5C6C7] sm:px-6 lg:py-10">
-      {/* Page heading */}
-      <div className="mb-8">
-        <button
-          type="button"
-          onClick={() => navigate("/dashboard")}
-          className="inline-flex items-center gap-2 text-sm font-medium text-[#C5C6C7]/55 transition hover:text-[#66FCF1]"
+    <AppShell
+      title={isNew ? "Create record" : "Edit record"}
+      description="Write structured documentation with Markdown and preview it before saving."
+      action={
+        <Link
+          to="/dashboard"
+          className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white"
         >
-          <ArrowLeft size={17} />
-          Back to Dashboard
-        </button>
-
-        <div className="mt-6 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#45A29E]/30 bg-[#45A29E]/15 text-[#66FCF1]">
-            <FileEdit size={21} />
-          </div>
-
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-[#C5C6C7]">
-              Edit article
-            </h1>
-
-            <p className="mt-1 text-sm text-[#C5C6C7]/50">
-              Update your documentation and save your changes.
+          <ArrowLeft size={15} /> Back
+        </Link>
+      }
+    >
+      {loading ? (
+        <p className="text-sm text-slate-500">Loading editor…</p>
+      ) : (
+        <div className="mx-auto max-w-5xl space-y-5">
+          {error && (
+            <p className="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-sm text-rose-300">
+              {error}
             </p>
+          )}
+          <section className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Record title
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={200}
+              placeholder="Give your documentation a clear title"
+              className="w-full border-0 bg-transparent text-2xl font-semibold text-white outline-none placeholder:text-slate-700"
+            />
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
+              <label className="text-xs text-slate-500">
+                Category
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="ml-3 rounded-lg border border-white/10 bg-[#0B0C10] px-3 py-2 text-sm text-slate-200"
+                >
+                  <option value="">Uncategorized</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="text-xs text-slate-600">
+                New records start as drafts. Only admins can change status.
+              </span>
+            </div>
+          </section>
+          <MarkdownEditor value={content} onChange={setContent} />
+          <div className="flex justify-end gap-3">
+            <Link
+              to="/dashboard"
+              className="rounded-xl border border-white/10 px-4 py-3 text-sm text-slate-300 hover:bg-white/5"
+            >
+              Cancel
+            </Link>
+            <button
+              disabled={saving}
+              onClick={() => void save()}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#66FCF1] px-5 py-3 text-sm font-bold text-[#0B0C10] disabled:opacity-50"
+            >
+              <Save size={16} />
+              {saving ? "Saving…" : "Save draft"}
+            </button>
           </div>
-        </div>
-      </div>
-
-      {/* Error message */}
-      {error && (
-        <div className="mb-6 flex items-start gap-3 rounded-lg border border-[#45A29E]/40 bg-[#1F2833] p-4">
-          <AlertCircle
-            size={19}
-            className="mt-0.5 shrink-0 text-[#66FCF1]"
-          />
-
-          <p className="text-sm text-[#C5C6C7]">{error}</p>
         </div>
       )}
-
-      {/* Edit form */}
-      <form
-        onSubmit={handleSubmit}
-        className="overflow-hidden rounded-xl border border-[#45A29E]/25 bg-[#1F2833]"
-      >
-        <div className="space-y-7 p-5 sm:p-8">
-          {/* Article title */}
-          <div>
-            <label
-              htmlFor="title"
-              className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#C5C6C7]"
-            >
-              <FileText size={16} className="text-[#66FCF1]" />
-              Article title
-            </label>
-
-            <input
-              id="title"
-              type="text"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              placeholder="Enter article title"
-              className="w-full rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] px-4 py-3 text-sm text-[#C5C6C7] outline-none transition placeholder:text-[#C5C6C7]/30 focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10"
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label
-              htmlFor="category"
-              className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#C5C6C7]"
-            >
-              <Tag size={16} className="text-[#66FCF1]" />
-              Category
-            </label>
-
-            <select
-              id="category"
-              value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
-              className="w-full rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] px-4 py-3 text-sm text-[#C5C6C7] outline-none transition focus:border-[#66FCF1] focus:ring-2 focus:ring-[#66FCF1]/10"
-            >
-              <option value="">No category</option>
-
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Markdown editor */}
-          <div>
-            <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#C5C6C7]">
-              <BookOpen size={16} className="text-[#66FCF1]" />
-              Article content
-              <span className="text-xs font-normal text-[#C5C6C7]/40">
-                (Markdown)
-              </span>
-            </label>
-
-            <div className="overflow-hidden rounded-lg border border-[#45A29E]/30 bg-[#0B0C10]">
-              <MarkdownEditor
-                value={content}
-                onChange={setContent}
-              />
-            </div>
-
-            <p className="mt-3 text-xs leading-relaxed text-[#C5C6C7]/45">
-              Markdown is supported. Use # for headings, **text** for bold,
-              and fenced code blocks for code snippets.
-            </p>
-          </div>
-        </div>
-
-        {/* Form actions */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#45A29E]/20 bg-[#0B0C10]/40 px-5 py-5 sm:px-8">
-          <p className="text-xs text-[#C5C6C7]/40">
-            Make sure your changes are ready before saving.
-          </p>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/dashboard")}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg border border-[#45A29E]/30 px-5 py-2.5 text-sm font-medium text-[#C5C6C7]/70 transition hover:border-[#66FCF1]/50 hover:text-[#66FCF1] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <X size={16} />
-              Cancel
-            </button>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#66FCF1] px-6 py-2.5 text-sm font-semibold text-[#0B0C10] transition hover:bg-[#45A29E] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  Save changes
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </form>
-    </main>
+    </AppShell>
   );
 }

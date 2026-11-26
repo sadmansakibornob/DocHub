@@ -1,406 +1,278 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  BookOpen,
-  FileText,
-  FileEdit,
-  Clock3,
-  CheckCircle2,
   Plus,
   Search,
-  Trash2,
+  FileText,
+  Clock3,
+  CheckCircle2,
   Pencil,
-  Eye,
-  Loader2,
-  LayoutList,
-  UserRound,
-  RefreshCw,
+  Trash2,
+  FolderKanban,
+  BookOpen,
 } from "lucide-react";
-
-import { useAuth } from "../contexts/AuthContext";
 import articleService from "../services/articleService";
+import type { Article } from "../types/article";
+import { useAuth } from "../contexts/AuthContext";
 
-import type { Article, ArticleStatus } from "../types/article";
-
-type ArticleScope = "all" | "mine";
-
-const statusStyles: Record<ArticleStatus, string> = {
-  draft: "border-[#45A29E]/30 bg-[#45A29E]/10 text-[#C5C6C7]",
-  review: "border-[#66FCF1]/30 bg-[#66FCF1]/10 text-[#66FCF1]",
-  published: "border-[#45A29E]/50 bg-[#45A29E]/20 text-[#66FCF1]",
+const statusTone: Record<string, string> = {
+  draft: "text-amber-300 bg-amber-300/10",
+  review: "text-violet-300 bg-violet-300/10",
+  published: "text-emerald-300 bg-emerald-300/10",
 };
 
 export default function ContributorDashboard() {
   const { user } = useAuth();
 
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [scope, setScope] = useState<ArticleScope>("all");
-  const [filter, setFilter] = useState("all");
+  const [items, setItems] = useState<Article[]>([]);
+  const [publicItems, setPublicItems] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState("");
 
-  const loadArticles = useCallback(async () => {
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
+  useEffect(() => {
+    let live = true;
 
-    try {
-      setError("");
-      const data = await articleService.getAll();
-      setArticles(data);
-    } catch {
-      setError("Could not load articles. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    (async () => {
+      try {
+        const all = await articleService.getAll();
+
+        if (live) {
+          setItems(all.filter((a) => a.author_id === user?.id));
+
+          setPublicItems(
+            all.filter(
+              (a) => a.status === "published" && a.author_id !== user?.id,
+            ),
+          );
+        }
+      } catch {
+        if (live) {
+          setError(
+            "Could not load your records. Check the API connection and try again.",
+          );
+        }
+      } finally {
+        if (live) setLoading(false);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
   }, [user?.id]);
 
-  useEffect(() => {
-    void loadArticles();
-  }, [loadArticles]);
-
-  const myArticles = useMemo(
-    () => articles.filter((article) => article.author_id === user?.id),
-    [articles, user?.id]
+  const filtered = useMemo(
+    () =>
+      items.filter((a) => a.title.toLowerCase().includes(query.toLowerCase())),
+    [items, query],
   );
 
-  const scopedArticles = useMemo(
-    () => (scope === "mine" ? myArticles : articles),
-    [scope, myArticles, articles]
-  );
-
-  const filteredArticles = useMemo(() => {
-    if (filter === "all") return scopedArticles;
-
-    return scopedArticles.filter(
-      (article) => article.status === filter
-    );
-  }, [scopedArticles, filter]);
-
-  const stats = {
-    total: myArticles.length,
-    draft: myArticles.filter((article) => article.status === "draft").length,
-    review: myArticles.filter((article) => article.status === "review").length,
-    published: myArticles.filter(
-      (article) => article.status === "published"
-    ).length,
-  };
-
-  async function handleDelete(id: number) {
-    if (!window.confirm("Are you sure you want to delete this article?")) {
-      return;
-    }
+  async function remove(id: number) {
+    if (!confirm("Delete this record permanently?")) return;
 
     try {
-      setError("");
-      setDeletingId(id);
       await articleService.delete(id);
-      await loadArticles();
+      setItems((x) => x.filter((a) => a.id !== id));
     } catch {
-      setError("Could not delete the article. Please try again.");
-    } finally {
-      setDeletingId(null);
+      setError("Delete failed. You may not own this record.");
     }
   }
 
-  const statCards = [
-    {
-      label: "My articles",
-      value: stats.total,
-      icon: FileText,
-      description: "Total articles created",
-    },
-    {
-      label: "Drafts",
-      value: stats.draft,
-      icon: FileEdit,
-      description: "Still in progress",
-    },
-    {
-      label: "In review",
-      value: stats.review,
-      icon: Clock3,
-      description: "Waiting for review",
-    },
-    {
-      label: "Published",
-      value: stats.published,
-      icon: CheckCircle2,
-      description: "Available to readers",
-    },
-  ];
+  const count = (s: string) => items.filter((a) => a.status === s).length;
 
   return (
-    <section className="mx-auto max-w-7xl px-5 py-8 text-[#C5C6C7] sm:px-6 lg:py-10">
-      {/* Dashboard heading */}
-      <div className="mb-9 flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
-        <div>
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[#66FCF1]">
-            <LayoutList size={17} />
-            Contributor workspace
+    <div className="space-y-7">
+      {/* Statistics */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "My records", value: items.length, icon: FileText },
+          { label: "Drafts", value: count("draft"), icon: Pencil },
+          { label: "In review", value: count("review"), icon: Clock3 },
+          {
+            label: "Published",
+            value: count("published"),
+            icon: CheckCircle2,
+          },
+        ].map((x) => (
+          <div
+            key={x.label}
+            className="rounded-2xl border border-white/8 bg-[#11151c] p-5"
+          >
+            <div className="flex items-center justify-between text-sm text-slate-400">
+              <span>{x.label}</span>
+              <x.icon size={17} className="text-[#45A29E]" />
+            </div>
+
+            <p className="mt-4 text-3xl font-semibold text-white">{x.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* My records */}
+      <section className="overflow-hidden rounded-2xl border border-white/8 bg-[#11151c]">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/8 p-5">
+          <div>
+            <h2 className="font-semibold text-white">Your records</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Only records authored by your account are shown.
+            </p>
           </div>
 
-          <h1 className="text-3xl font-bold tracking-tight text-[#C5C6C7] sm:text-4xl">
-            Welcome, {user?.name}
-          </h1>
+          <Link
+            to="/articles/new/edit"
+            className="inline-flex items-center gap-2 rounded-xl bg-[#66FCF1] px-4 py-2.5 text-sm font-bold text-[#0B0C10] hover:bg-[#9bfff8]"
+          >
+            <Plus size={16} />
+            New record
+          </Link>
+        </div>
 
-          <p className="mt-2 text-sm text-[#C5C6C7]/60 sm:text-base">
-            Manage your articles and explore published content.
+        <div className="border-b border-white/8 p-4">
+          <div className="relative max-w-sm">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+            />
+
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search your records"
+              className="w-full rounded-xl border border-white/10 bg-[#0B0C10] py-2.5 pl-9 pr-3 text-sm outline-none focus:border-[#45A29E]"
+            />
+          </div>
+        </div>
+
+        {error && <p className="px-5 pt-4 text-sm text-rose-300">{error}</p>}
+
+        {loading ? (
+          <p className="p-10 text-center text-sm text-slate-500">
+            Loading records…
+          </p>
+        ) : filtered.length === 0 ? (
+          <div className="p-12 text-center">
+            <FolderKanban className="mx-auto mb-3 text-slate-600" size={30} />
+
+            <p className="font-medium text-white">No records found</p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Create your first knowledge article to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-white/6">
+            {filtered.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-4 p-5 hover:bg-white/[.02]"
+              >
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/articles/${a.id}`}
+                    className="font-semibold text-white hover:text-[#66FCF1]"
+                  >
+                    {a.title}
+                  </Link>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Updated{" "}
+                    {a.updated_at
+                      ? new Date(a.updated_at).toLocaleDateString()
+                      : "—"}
+                  </p>
+                </div>
+
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
+                    statusTone[a.status] || "bg-white/10 text-slate-300"
+                  }`}
+                >
+                  {a.status}
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <Link
+                    to={`/articles/${a.id}`}
+                    title="Read article"
+                    className="inline-flex items-center gap-2 rounded-lg border border-[#45A29E]/30 bg-[#45A29E]/5 px-3 py-2 text-xs font-semibold text-[#66FCF1] hover:bg-[#45A29E]/15"
+                  >
+                    <BookOpen size={14} />
+                    Read
+                  </Link>
+
+                  <Link
+                    title="Edit"
+                    to={`/articles/${a.id}/edit`}
+                    className="rounded-lg p-2 text-slate-400 hover:bg-white/8 hover:text-[#66FCF1]"
+                  >
+                    <Pencil size={16} />
+                  </Link>
+
+                  <button
+                    type="button"
+                    title="Delete"
+                    onClick={() => void remove(a.id)}
+                    className="rounded-lg p-2 text-slate-400 hover:bg-rose-400/10 hover:text-rose-300"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Published knowledge */}
+      <section className="overflow-hidden rounded-2xl border border-white/8 bg-[#11151c]">
+        <div className="border-b border-white/8 p-5">
+          <h2 className="font-semibold text-white">Published knowledge</h2>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Published records shared by other members of DocHub.
           </p>
         </div>
 
-        <Link
-          to="/?create=1"
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#66FCF1] px-5 py-3 text-sm font-semibold text-[#0B0C10] transition hover:bg-[#45A29E] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#66FCF1] focus:ring-offset-2 focus:ring-offset-[#0B0C10]"
-        >
-          <Plus size={18} />
-          Create new article
-        </Link>
-      </div>
+        {loading ? (
+          <p className="p-8 text-center text-sm text-slate-500">
+            Loading published articles…
+          </p>
+        ) : publicItems.length === 0 ? (
+          <p className="p-8 text-center text-sm text-slate-500">
+            No published records to explore yet.
+          </p>
+        ) : (
+          <div className="grid gap-3 p-4 md:grid-cols-2">
+            {publicItems.map((a) => (
+              <div
+                key={a.id}
+                className="rounded-xl border border-white/6 p-4 transition hover:border-[#45A29E]/40 hover:bg-white/[.02]"
+              >
+                <p className="font-semibold text-white">{a.title}</p>
 
-      {/* Statistics */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <div
-              key={item.label}
-              className="rounded-xl border border-[#45A29E]/25 bg-[#1F2833] p-5 transition duration-200 hover:border-[#66FCF1]/50"
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-[#C5C6C7]/65">
-                  {item.label}
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
+                  {a.content.slice(0, 160).replace(/[#*`]/g, "")}
                 </p>
 
-                <div className="rounded-lg bg-[#45A29E]/15 p-2.5 text-[#66FCF1]">
-                  <Icon size={19} />
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-xs text-[#45A29E]">
+                    By {a.author_name || "DocHub member"}
+                  </p>
+
+                  <Link
+                    to={`/articles/${a.id}`}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#66FCF1] hover:underline"
+                  >
+                    <BookOpen size={14} />
+                    Read article
+                  </Link>
                 </div>
               </div>
-
-              <p className="mt-4 text-3xl font-bold text-[#C5C6C7]">
-                {item.value}
-              </p>
-
-              <p className="mt-1 text-xs text-[#C5C6C7]/45">
-                {item.description}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Article management */}
-      <div className="overflow-hidden rounded-xl border border-[#45A29E]/25 bg-[#1F2833]">
-        {/* Toolbar */}
-        <div className="flex flex-col justify-between gap-5 border-b border-[#45A29E]/20 p-5 lg:flex-row lg:items-center">
-          <div>
-            <div className="flex items-center gap-2">
-              <BookOpen size={19} className="text-[#66FCF1]" />
-
-              <h2 className="text-lg font-semibold text-[#C5C6C7]">
-                {scope === "all" ? "All Articles" : "My Articles"}
-              </h2>
-            </div>
-
-            <p className="mt-1 text-sm text-[#C5C6C7]/50">
-              {scope === "all"
-                ? "Browse published articles and your own unpublished articles."
-                : "Manage articles created by you."}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {/* Article scope */}
-            <div className="flex rounded-lg border border-[#45A29E]/30 bg-[#0B0C10]/40 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setScope("all");
-                  setFilter("all");
-                }}
-                className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-                  scope === "all"
-                    ? "bg-[#66FCF1] text-[#0B0C10]"
-                    : "text-[#C5C6C7]/65 hover:bg-[#45A29E]/15 hover:text-[#66FCF1]"
-                }`}
-              >
-                All Articles
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setScope("mine");
-                  setFilter("all");
-                }}
-                className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-                  scope === "mine"
-                    ? "bg-[#66FCF1] text-[#0B0C10]"
-                    : "text-[#C5C6C7]/65 hover:bg-[#45A29E]/15 hover:text-[#66FCF1]"
-                }`}
-              >
-                My Articles
-              </button>
-            </div>
-
-            {/* Status filter */}
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              className="rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] px-3 py-2 text-sm text-[#C5C6C7] outline-none transition focus:border-[#66FCF1] focus:ring-1 focus:ring-[#66FCF1]/30"
-            >
-              <option value="all">Status</option>
-              <option value="draft">Drafts</option>
-              <option value="review">In review</option>
-              <option value="published">Published</option>
-            </select>
-
-            <button
-              type="button"
-              onClick={() => void loadArticles()}
-              disabled={loading}
-              title="Refresh articles"
-              className="inline-flex items-center justify-center rounded-lg border border-[#45A29E]/30 px-3 py-2 text-[#C5C6C7]/70 transition hover:border-[#66FCF1]/50 hover:text-[#66FCF1] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw size={17} className={loading ? "animate-spin" : ""} />
-            </button>
-          </div>
-        </div>
-
-        {/* Article list */}
-        {loading ? (
-          <div className="flex items-center justify-center gap-3 p-12 text-sm text-[#C5C6C7]/60">
-            <Loader2 size={19} className="animate-spin text-[#66FCF1]" />
-            Loading articles...
-          </div>
-        ) : error ? (
-          <div className="m-5 rounded-lg border border-[#45A29E]/30 bg-[#0B0C10] p-4">
-            <p className="text-sm text-[#66FCF1]">{error}</p>
-            <button
-              type="button"
-              onClick={() => void loadArticles()}
-              className="mt-3 text-sm font-medium text-[#66FCF1] hover:text-[#45A29E]"
-            >
-              Try again
-            </button>
-          </div>
-        ) : filteredArticles.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-[#45A29E]/15 text-[#66FCF1]">
-              {scope === "mine" ? (
-                <FileText size={22} />
-              ) : (
-                <Search size={22} />
-              )}
-            </div>
-
-            <p className="font-semibold text-[#C5C6C7]">
-              No articles found
-            </p>
-
-            <p className="mt-2 text-sm text-[#C5C6C7]/50">
-              {scope === "mine"
-                ? "You haven't created any articles yet."
-                : "There are no articles matching this filter."}
-            </p>
-
-            {scope === "mine" && (
-              <Link
-                to="/?create=1"
-                className="mt-5 inline-flex items-center gap-2 text-sm font-semibold text-[#66FCF1] transition hover:text-[#45A29E]"
-              >
-                <Plus size={16} />
-                Create your first article
-              </Link>
-            )}
-          </div>
-        ) : (
-          <div className="divide-y divide-[#45A29E]/15">
-            {filteredArticles.map((article) => {
-              const isOwner = article.author_id === user?.id;
-
-              return (
-                <div
-                  key={article.id}
-                  className="flex flex-col justify-between gap-4 p-5 transition hover:bg-[#0B0C10]/30 sm:flex-row sm:items-center"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      to={`/articles/${article.id}`}
-                      className="font-semibold text-[#C5C6C7] transition hover:text-[#66FCF1]"
-                    >
-                      {article.title}
-                    </Link>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#C5C6C7]/45">
-                      <span className="inline-flex items-center gap-1.5">
-                        <UserRound size={13} />
-                        {article.author_name || "Unknown author"}
-                      </span>
-
-                      <span>
-                        {article.created_at
-                          ? new Date(article.created_at).toLocaleDateString()
-                          : "Date unavailable"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold capitalize ${
-                        statusStyles[article.status]
-                      }`}
-                    >
-                      {article.status}
-                    </span>
-
-                    <Link
-                      to={`/articles/${article.id}`}
-                      title="Read article"
-                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[#C5C6C7]/65 transition hover:bg-[#45A29E]/15 hover:text-[#66FCF1]"
-                    >
-                      <Eye size={15} />
-                      Read
-                    </Link>
-
-                    {isOwner && (
-                      <>
-                        <Link
-                          to={`/articles/${article.id}/edit`}
-                          title="Edit article"
-                          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[#66FCF1] transition hover:bg-[#66FCF1]/10"
-                        >
-                          <Pencil size={15} />
-                          Edit
-                        </Link>
-
-                        <button
-                          type="button"
-                          disabled={deletingId === article.id}
-                          onClick={() => void handleDelete(article.id)}
-                          title="Delete article"
-                          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-[#C5C6C7]/55 transition hover:bg-[#45A29E]/15 hover:text-[#66FCF1] disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          {deletingId === article.id ? (
-                            <Loader2 size={15} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={15} />
-                          )}
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            ))}
           </div>
         )}
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

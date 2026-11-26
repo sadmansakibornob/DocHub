@@ -1,24 +1,23 @@
 import hashlib
 import hmac
-import secrets
 import logging
-
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Cookie
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 
+from app.audit import audit
 from app.config import settings
-from app.db import supabase, new_auth_client
-from app.security import issue_access_token, get_current_user
+from app.db import new_auth_client, supabase
+from app.repositories import auth_repository as auth_repo
 from app.schemas.auth_schema import (
-    SignupRequest,
     LoginRequest,
     PasswordChangeRequest,
     ProfileUpdateRequest,
+    SignupRequest,
 )
-from app.audit import audit
-
+from app.security import get_current_user, issue_access_token
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -33,10 +32,11 @@ COOKIE = "dochub_refresh"
 # PASSWORD AND TOKEN HELPERS
 # --------------------------------------------------
 
+
 def _peppered(password: str) -> str:
     """
     Apply a server-side HMAC pepper before Supabase hashes the password.
-    Keep this function consistent across signup, login and password changes.
+    Keep this consistent across signup, login and password changes.
     """
     return hmac.new(
         settings.password_pepper.encode(),
@@ -75,40 +75,35 @@ def _clear_cookie(response: Response) -> None:
 # USER PROFILE
 # --------------------------------------------------
 
-def _profile(user_id: str) -> dict:
-    rows = (
-        supabase.table("users")
-        .select("id,name,email,role,is_banned,ban_reason")
-        .eq("id", user_id)
-        .limit(1)
-        .execute()
-        .data
-    )
 
-    if not rows:
+def _profile(user_id: str) -> dict:
+    user = auth_repo.get_user_profile(user_id)
+
+    if not user:
         raise HTTPException(
             status_code=403,
             detail="Account profile is unavailable",
         )
 
-    if rows[0].get("is_banned"):
+    if user.get("is_banned"):
         raise HTTPException(
             status_code=403,
             detail="This account is suspended",
         )
 
-    if rows[0].get("role") not in {"user", "admin"}:
+    if user.get("role") not in {"user", "admin"}:
         raise HTTPException(
             status_code=403,
             detail="Invalid account role",
         )
 
-    return rows[0]
+    return user
 
 
 # --------------------------------------------------
 # SESSION CREATION
 # --------------------------------------------------
+
 
 def _new_session(
     user: dict,
@@ -122,25 +117,23 @@ def _new_session(
     now = datetime.now(timezone.utc)
     expires = now + timedelta(days=settings.refresh_token_days)
 
-    row = (
-        supabase.table("auth_sessions")
-        .insert({
+    row = auth_repo.create_auth_session(
+        {
             "user_id": user["id"],
             "refresh_token_hash": _hash(raw_refresh),
-            "supabase_refresh_enc": fernet.encrypt(
-                supabase_refresh.encode()
-            ).decode(),
+            "supabase_refresh_enc": fernet.encrypt(supabase_refresh.encode()).decode(),
             "user_agent": request.headers.get("user-agent", "")[:500],
-            "ip_address": (
-                request.client.host if request.client else None
-            ),
+            "ip_address": request.client.host if request.client else None,
             "expires_at": expires.isoformat(),
             "last_seen_at": now.isoformat(),
-        })
-        .select("id")
-        .execute()
-        .data[0]
+        }
     )
+
+    if not row:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not create authentication session",
+        )
 
     _cookie(response, raw_refresh)
 
@@ -156,6 +149,7 @@ def _new_session(
 # SIGNUP / REGISTER
 # --------------------------------------------------
 
+
 @router.post("/signup", status_code=201)
 @router.post("/register", status_code=201, include_in_schema=False)
 def signup(
@@ -167,10 +161,12 @@ def signup(
     client = new_auth_client()
 
     try:
-        created = client.auth.sign_up({
-            "email": str(payload.email).lower(),
-            "password": _peppered(payload.password),
-        })
+        created = client.auth.sign_up(
+            {
+                "email": str(payload.email).lower(),
+                "password": _peppered(payload.password),
+            }
+        )
 
         if not created.user:
             raise HTTPException(
@@ -180,18 +176,21 @@ def signup(
 
         uid = str(created.user.id)
 
-        inserted = (
-            supabase.table("users")
-            .insert({
+        inserted = auth_repo.create_user_profile(
+            {
                 "id": uid,
                 "name": payload.name,
                 "email": str(payload.email).lower(),
                 "role": "user",
                 "is_banned": False,
-            })
-            .select("id,name,email,role")
-            .execute()
+            }
         )
+
+        if not inserted:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not create user profile",
+            )
 
         audit(uid, "auth.signup", request, "user", uid)
 
@@ -212,7 +211,7 @@ def signup(
 
         return {
             "message": "Account created. Check your email to confirm the address.",
-            "user": inserted.data[0],
+            "user": inserted,
             "requires_email_confirmation": True,
         }
 
@@ -232,6 +231,7 @@ def signup(
 # LOGIN
 # --------------------------------------------------
 
+
 @router.post("/login")
 def login(
     payload: LoginRequest,
@@ -240,35 +240,19 @@ def login(
 ):
 
     email = str(payload.email).lower()
-
     ip = request.client.host if request.client else None
 
-    since = (
-        datetime.now(timezone.utc) - timedelta(minutes=15)
-    ).isoformat()
+    since = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
 
     # Database-backed login throttling.
-    attempts = (
-        supabase.table("login_attempts")
-        .select("id", count="exact")
-        .eq("succeeded", False)
-        .gte("attempted_at", since)
+    by_email = auth_repo.count_failed_attempts_by_email(
+        email,
+        since,
     )
 
-    by_email = (
-        attempts.eq("email", email)
-        .execute()
-        .count or 0
-    )
-
-    by_ip = (
-        supabase.table("login_attempts")
-        .select("id", count="exact")
-        .eq("ip_address", ip)
-        .eq("succeeded", False)
-        .gte("attempted_at", since)
-        .execute()
-        .count or 0
+    by_ip = auth_repo.count_failed_attempts_by_ip(
+        ip,
+        since,
     )
 
     if by_email >= 8 or by_ip >= 20:
@@ -280,22 +264,26 @@ def login(
     client = new_auth_client()
 
     try:
-        result = client.auth.sign_in_with_password({
-            "email": email,
-            "password": _peppered(payload.password),
-        })
+        result = client.auth.sign_in_with_password(
+            {
+                "email": email,
+                "password": _peppered(payload.password),
+            }
+        )
 
         if not result.user or not result.session:
             raise ValueError("No session")
 
         user = _profile(str(result.user.id))
 
-        supabase.table("login_attempts").insert({
-            "email": email,
-            "ip_address": ip,
-            "user_agent": request.headers.get("user-agent", "")[:500],
-            "succeeded": True,
-        }).execute()
+        auth_repo.record_login_attempt(
+            {
+                "email": email,
+                "ip_address": ip,
+                "user_agent": request.headers.get("user-agent", "")[:500],
+                "succeeded": True,
+            }
+        )
 
         data = _new_session(
             user,
@@ -312,12 +300,14 @@ def login(
         raise
 
     except Exception as exc:
-        supabase.table("login_attempts").insert({
-            "email": email,
-            "ip_address": ip,
-            "user_agent": request.headers.get("user-agent", "")[:500],
-            "succeeded": False,
-        }).execute()
+        auth_repo.record_login_attempt(
+            {
+                "email": email,
+                "ip_address": ip,
+                "user_agent": request.headers.get("user-agent", "")[:500],
+                "succeeded": False,
+            }
+        )
 
         audit(None, "auth.login.failed", request, "account", email)
 
@@ -330,6 +320,7 @@ def login(
 # --------------------------------------------------
 # REFRESH TOKEN
 # --------------------------------------------------
+
 
 @router.post("/refresh")
 def refresh(
@@ -349,18 +340,9 @@ def refresh(
 
     old_hash = _hash(refresh_token)
 
-    rows = (
-        supabase.table("auth_sessions")
-        .select(
-            "id,user_id,supabase_refresh_enc,revoked_at,expires_at"
-        )
-        .eq("refresh_token_hash", old_hash)
-        .limit(1)
-        .execute()
-        .data
-    )
+    row = auth_repo.get_session_by_refresh_hash(old_hash)
 
-    if not rows or rows[0].get("revoked_at"):
+    if not row or row.get("revoked_at"):
         _clear_cookie(response)
 
         raise HTTPException(
@@ -368,16 +350,13 @@ def refresh(
             detail="Refresh session is invalid",
         )
 
-    row = rows[0]
-
-    expires_at = datetime.fromisoformat(
-        row["expires_at"].replace("Z", "+00:00")
-    )
+    expires_at = datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
 
     if expires_at <= datetime.now(timezone.utc):
-        supabase.table("auth_sessions").update({
-            "revoked_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", row["id"]).execute()
+        auth_repo.revoke_session(
+            row["id"],
+            active_only=True,
+        )
 
         _clear_cookie(response)
 
@@ -391,9 +370,7 @@ def refresh(
             row["supabase_refresh_enc"].encode()
         ).decode()
 
-        result = new_auth_client().auth.refresh_session(
-            old_supabase_refresh
-        )
+        result = new_auth_client().auth.refresh_session(old_supabase_refresh)
 
         if not result.session or not result.user:
             raise ValueError("No refreshed session")
@@ -403,21 +380,16 @@ def refresh(
         new_raw = secrets.token_urlsafe(48)
         now = datetime.now(timezone.utc).isoformat()
 
-        changed = (
-            supabase.table("auth_sessions")
-            .update({
+        changed = auth_repo.rotate_refresh_session(
+            session_id=row["id"],
+            old_hash=old_hash,
+            new_data={
                 "refresh_token_hash": _hash(new_raw),
                 "supabase_refresh_enc": fernet.encrypt(
                     result.session.refresh_token.encode()
                 ).decode(),
                 "last_seen_at": now,
-            })
-            .eq("id", row["id"])
-            .eq("refresh_token_hash", old_hash)
-            .is_("revoked_at", "null")
-            .select("id")
-            .execute()
-            .data
+            },
         )
 
         if not changed:
@@ -447,9 +419,10 @@ def refresh(
         raise
 
     except Exception as exc:
-        supabase.table("auth_sessions").update({
-            "revoked_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", row["id"]).execute()
+        auth_repo.revoke_session(
+            row["id"],
+            active_only=True,
+        )
 
         _clear_cookie(response)
 
@@ -462,6 +435,7 @@ def refresh(
 # --------------------------------------------------
 # LOGOUT
 # --------------------------------------------------
+
 
 @router.post("/logout", status_code=204)
 def logout(
@@ -476,26 +450,20 @@ def logout(
     if refresh_token:
         old_hash = _hash(refresh_token)
 
-        rows = (
-            supabase.table("auth_sessions")
-            .select("id,user_id")
-            .eq("refresh_token_hash", old_hash)
-            .limit(1)
-            .execute()
-            .data or []
-        )
+        row = auth_repo.get_session_by_refresh_hash(old_hash)
 
-        if rows:
-            supabase.table("auth_sessions").update({
-                "revoked_at": datetime.now(timezone.utc).isoformat()
-            }).eq("id", rows[0]["id"]).execute()
+        if row:
+            auth_repo.revoke_session(
+                row["id"],
+                active_only=False,
+            )
 
             audit(
-                rows[0]["user_id"],
+                row["user_id"],
                 "auth.logout",
                 request,
                 "session",
-                rows[0]["id"],
+                row["id"],
             )
 
     _clear_cookie(response)
@@ -504,6 +472,7 @@ def logout(
 # --------------------------------------------------
 # CURRENT USER
 # --------------------------------------------------
+
 
 @router.get("/me")
 def get_me(
@@ -516,22 +485,12 @@ def get_me(
 # USER SESSIONS
 # --------------------------------------------------
 
+
 @router.get("/sessions")
 def my_sessions(
     user: dict = Depends(get_current_user),
 ):
-
-    return (
-        supabase.table("auth_sessions")
-        .select(
-            "id,user_agent,ip_address,created_at,last_seen_at,"
-            "expires_at,revoked_at"
-        )
-        .eq("user_id", user["id"])
-        .order("created_at", desc=True)
-        .execute()
-        .data
-    )
+    return auth_repo.get_user_sessions(user["id"])
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
@@ -540,17 +499,10 @@ def revoke_session(
     user: dict = Depends(get_current_user),
 ):
 
-    rows = (
-        supabase.table("auth_sessions")
-        .update({
-            "revoked_at": datetime.now(timezone.utc).isoformat()
-        })
-        .eq("id", session_id)
-        .eq("user_id", user["id"])
-        .is_("revoked_at", "null")
-        .select("id")
-        .execute()
-        .data
+    rows = auth_repo.revoke_session(
+        session_id=session_id,
+        user_id=user["id"],
+        active_only=True,
     )
 
     if not rows:
@@ -564,6 +516,7 @@ def revoke_session(
 # UPDATE PROFILE
 # --------------------------------------------------
 
+
 @router.patch("/me")
 def update_me(
     payload: ProfileUpdateRequest,
@@ -571,19 +524,15 @@ def update_me(
     user: dict = Depends(get_current_user),
 ):
 
-    rows = (
-        supabase.table("users")
-        .update({
+    updated = auth_repo.update_user_profile(
+        user["id"],
+        {
             "name": payload.name.strip(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        .eq("id", user["id"])
-        .select("id,name,email,role,is_banned")
-        .execute()
-        .data
+        },
     )
 
-    if not rows:
+    if not updated:
         raise HTTPException(
             status_code=404,
             detail="User profile not found",
@@ -597,12 +546,13 @@ def update_me(
         user["id"],
     )
 
-    return rows[0]
+    return updated
 
 
 # --------------------------------------------------
 # CHANGE PASSWORD
 # --------------------------------------------------
+
 
 @router.post("/change-password", status_code=204)
 def change_password(
@@ -611,8 +561,6 @@ def change_password(
     user: dict = Depends(get_current_user),
 ):
 
-    # Password must contain at least 6 characters.
-    # No uppercase, lowercase or number requirements.
     if len(payload.new_password) < 6:
         raise HTTPException(
             status_code=422,
@@ -629,10 +577,12 @@ def change_password(
 
     try:
         # Verify the current password.
-        client.auth.sign_in_with_password({
-            "email": user["email"],
-            "password": _peppered(payload.current_password),
-        })
+        client.auth.sign_in_with_password(
+            {
+                "email": user["email"],
+                "password": _peppered(payload.current_password),
+            }
+        )
 
         # Update the password in Supabase Auth.
         supabase.auth.admin.update_user_by_id(
@@ -657,11 +607,7 @@ def change_password(
         ) from exc
 
     # Revoke all existing sessions after a password change.
-    supabase.table("auth_sessions").update({
-        "revoked_at": datetime.now(timezone.utc).isoformat()
-    }).eq("user_id", user["id"]).is_(
-        "revoked_at", "null"
-    ).execute()
+    auth_repo.revoke_user_sessions(user["id"])
 
     audit(
         user["id"],

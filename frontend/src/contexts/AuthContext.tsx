@@ -7,10 +7,12 @@ import {
 } from "react";
 
 import authService from "../services/authService";
+
 import type {
   User,
   LoginCredentials,
   RegisterData,
+  RegisterResponse,
 } from "../types/user";
 
 interface AuthContextType {
@@ -18,57 +20,141 @@ interface AuthContextType {
   loading: boolean;
   isAuthenticated: boolean;
   login: (data: LoginCredentials) => Promise<void>;
-  register: (data: RegisterData) => Promise<void>;
-  logout: () => void;
+  register: (data: RegisterData) => Promise<RegisterResponse>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(
   undefined
 );
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+// Share the initial refresh across StrictMode remounts because refresh tokens rotate.
+let startupRefreshPromise: ReturnType<typeof authService.refresh> | null = null;
+
+export function AuthProvider({
+  children,
+}: {
+  children: ReactNode;
+}) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore the session when the application starts.
   useEffect(() => {
+    let active = true;
+
     const restoreSession = async () => {
-      const token = localStorage.getItem("access_token");
-
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
       try {
-        const currentUser = await authService.getCurrentUser();
-        setUser(currentUser);
+        const token = localStorage.getItem("access_token");
+
+        if (token) {
+          // Axios automatically refreshes if this returns 401.
+          const currentUser = await authService.getCurrentUser();
+
+          if (active) {
+            setUser(currentUser);
+          }
+        } else {
+          // Try restoring through the HttpOnly refresh cookie.
+          if (!startupRefreshPromise) {
+            startupRefreshPromise = authService.refresh().finally(() => {
+              startupRefreshPromise = null;
+            });
+          }
+          const response = await startupRefreshPromise;
+
+          if (active) {
+            localStorage.setItem(
+              "access_token",
+              response.access_token
+            );
+
+            setUser(response.user);
+          }
+        }
       } catch {
-        authService.logout();
-        setUser(null);
+        localStorage.removeItem("access_token");
+
+        if (active) {
+          setUser(null);
+        }
       } finally {
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
 
     restoreSession();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
+  // Listen for failed refresh attempts.
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+    };
+
+    window.addEventListener(
+      "dochub:session-expired",
+      handleSessionExpired
+    );
+
+    return () => {
+      window.removeEventListener(
+        "dochub:session-expired",
+        handleSessionExpired
+      );
+    };
+  }, []);
+
+  // Login.
   const login = async (data: LoginCredentials) => {
     const response = await authService.login(data);
 
-    localStorage.setItem("access_token", response.access_token);
-    localStorage.setItem("refresh_token", response.refresh_token);
+    localStorage.setItem(
+      "access_token",
+      response.access_token
+    );
 
     setUser(response.user);
   };
 
-  const register = async (data: RegisterData) => {
-    await authService.register(data);
+  // Register.
+  const register = async (data: RegisterData): Promise<RegisterResponse> => {
+    const response = await authService.register(data);
+
+    // Signup may create an authenticated session immediately.
+    if (response.access_token) {
+      localStorage.setItem(
+        "access_token",
+        response.access_token
+      );
+
+      setUser(response.user);
+    }
+    return response;
   };
 
-  const logout = () => {
-    authService.logout();
-    setUser(null);
+  // Reload the authenticated user's profile.
+  const refreshUser = async () => {
+    const currentUser = await authService.getCurrentUser();
+
+    setUser(currentUser);
+  };
+
+  // Revoke the backend session and clear local state.
+  const logout = async () => {
+    try {
+      await authService.logout();
+    } finally {
+      localStorage.removeItem("access_token");
+      setUser(null);
+    }
   };
 
   return (
@@ -76,10 +162,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
-        isAuthenticated: !!user,
+        isAuthenticated: Boolean(user),
         login,
         register,
         logout,
+        refreshUser,
       }}
     >
       {children}
@@ -87,11 +174,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error("useAuth must be used inside AuthProvider");
+    throw new Error(
+      "useAuth must be used inside AuthProvider"
+    );
   }
 
   return context;
