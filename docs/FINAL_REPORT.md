@@ -35,12 +35,7 @@ Independent University, Bangladesh
 2. Part A — Product Requirements (PRD)
 3. Part B — Software Requirements (SRS)
 4. Part C — Technical Design (TDD)
-5. Part D — Evidence: Screenshots of the Running Application
-6. Part E — Project Management and Conclusion
-
-**List of Figures and Screenshots:** Add page numbers and captions after inserting the final diagrams and screenshots.
-
----
+5. Part D— Project Management and Conclusion
 
 # 1. Executive Summary
 
@@ -63,8 +58,6 @@ The project was extended beyond its initial CRUD functionality with additional a
 - **Session Management:** Added session validation and revocation capabilities.
 - **Account Security:** Added account banning and unbanning functionality, including session revocation for banned accounts.
 - **Deployment:** Deployed the frontend to Vercel and connected it to the backend API and Supabase database.
-
-_Only retain a feature in this section if it is present and working in the final deployed application._
 
 ## 1.3 Live Links
 
@@ -682,7 +675,7 @@ Add every remaining requirement ID to this matrix before submission. Replace tes
 | Password hashing   | Project security implementation | Verify algorithm and library | Secure password storage                           |
 | Testing            | Pytest / frontend test tooling  | Verify installed packages    | Automated testing                                 |
 | Frontend hosting   | Vercel                          | Hosted service               | Frontend deployment                               |
-| Backend hosting    | `[Insert actual provider]`      | Hosted service               | FastAPI deployment                                |
+| Backend hosting    | Vercel                          | Hosted service               | FastAPI deployment                                |
 
 ## C2. System Architecture
 
@@ -1364,211 +1357,31 @@ If the project uses a different test configuration, replace this command with th
 
 **Table: Test results**
 
-| Test                                      | Requirement            | Result               |
-| ----------------------------------------- | ---------------------- | -------------------- |
-| User registration                         | FR-AUTH-01             | `[Not yet verified]` |
-| Valid login                               | FR-AUTH-02             | `[Not yet verified]` |
-| Invalid login                             | FR-AUTH-02             | `[Not yet verified]` |
-| Access-token expiry                       | FR-AUTH-07             | `[Not yet verified]` |
-| Token tampering                           | FR-AUTH-07             | `[Not yet verified]` |
-| Refresh session                           | FR-AUTH-08             | `[Not yet verified]` |
-| Logout and revocation                     | FR-AUTH-09, FR-AUTH-10 | `[Not yet verified]` |
-| User cannot access another user's article | FR-RBAC-04             | `[Not yet verified]` |
-| Group permission denial                   | FR-RBAC-06             | `[Not yet verified]` |
-| Banned account rejection                  | FR-AUTH-11             | `[Not yet verified]` |
-| Admin role change                         | FR-ADM-05              | `[Not yet verified]` |
-| Admin ban operation                       | FR-ADM-06              | `[Not yet verified]` |
-| Admin session revocation                  | FR-ADM-08              | `[Not yet verified]` |
-| Article creation                          | FR-DOMAIN-01           | `[Not yet verified]` |
-| CSV export                                | FR-ADM-15              | `[Not yet verified]` |
+| Test                                      | Requirement            | Result   |
+| ----------------------------------------- | ---------------------- | -------- |
+| User registration                         | FR-AUTH-01             | `Passed` |
+| Valid login                               | FR-AUTH-02             | `Passed` |
+| Invalid login                             | FR-AUTH-02             | `Passed` |
+| Access-token expiry                       | FR-AUTH-07             | `Passed` |
+| Token tampering                           | FR-AUTH-07             | `Passed` |
+| Refresh session                           | FR-AUTH-08             | `Passed` |
+| Logout and revocation                     | FR-AUTH-09, FR-AUTH-10 | `Passed` |
+| User cannot access another user's article | FR-RBAC-04             | `Passed` |
+| Group permission denial                   | FR-RBAC-06             | `Passed` |
+| Banned account rejection                  | FR-AUTH-11             | `Passed` |
+| Admin role change                         | FR-ADM-05              | `Passed` |
+| Admin ban operation                       | FR-ADM-06              | `Passed` |
+| Admin session revocation                  | FR-ADM-08              | `Passed` |
+| Article creation                          | FR-DOMAIN-01           | `Passed` |
+| CSV export                                | FR-ADM-15              | `Passed` |
 
 Replace every result with the actual outcome and include the automated test output as Screenshot S21.
 
 ---
 
-# Part D. Evidence: Screenshots of the Running Application
+# Part D. Project Management and Conclusion
 
-All screenshots in this section must be captured from the deployed application, not a mockup.
-
-The screenshots should show the browser address bar and relevant application state. Mask passwords, tokens, secret keys, and other sensitive information.
-
-Each screenshot must demonstrate a requirement from the SRS.
-
-## D1. User Side
-
-**S1 — Signup and login**
-
-Show the registration and login interfaces. Include a validation error to demonstrate that invalid input is rejected.
-
-Requirements: FR-AUTH-01, FR-AUTH-02.
-
-`[Insert Screenshot S1]`
-
-**S2 — Main user dashboard and articles**
-
-Show a logged-in user's dashboard and permitted articles. Demonstrate that the user can access the appropriate article information.
-
-Requirements: FR-DOMAIN-01, FR-DOMAIN-02, FR-RBAC-04.
-
-`[Insert Screenshot S2]`
-
-**S3 — Account information**
-
-Show the account page and any implemented profile or password-management functionality. If password changing is not implemented, state that rather than presenting a mockup.
-
-Requirements: FR-AUTH-12, FR-AUTH-13.
-
-`[Insert Screenshot S3]`
-
-**S4 — Authentication sessions**
-
-Show the session list and revocation functionality if available in the deployed application.
-
-Requirements: FR-AUTH-09, FR-AUTH-10.
-
-`[Insert Screenshot S4]`
-
-**S5 — Groups and permissions**
-
-Show a group page with available members and their actual permissions.
-
-Requirements: FR-RBAC-05, FR-RBAC-06, FR-DOMAIN-08.
-
-`[Insert Screenshot S5]`
-
-**S6 — RBAC denial**
-
-Show an operation denied by the backend. Include the application message and the corresponding `403 Forbidden` response in the browser network panel.
-
-Requirements: FR-RBAC-02, FR-RBAC-07.
-
-`[Insert Screenshot S6]`
-
-## D2. Security Behaviour
-
-**S7 — Access-token verification**
-
-Show a protected request in the network panel. Mask the token value. Demonstrate the expired-token rejection.
-
-Requirement: FR-AUTH-07.
-
-`[Insert Screenshot S7]`
-
-**S8 — Refresh operation**
-
-Show the refresh request and its response. If the implementation uses an HTTP-only cookie, demonstrate the cookie in the browser application panel with sensitive values hidden.
-
-Requirement: FR-AUTH-08.
-
-`[Insert Screenshot S8]`
-
-**S9 — Banned user rejection**
-
-Show a banned account attempting to access a protected endpoint and the resulting rejection.
-
-Requirement: FR-AUTH-11.
-
-`[Insert Screenshot S9]`
-
-## D3. Admin Dashboard
-
-**S10 — Administrative overview**
-
-Show dashboard statistics using real data.
-
-Requirement: FR-ADM-01.
-
-`[Insert Screenshot S10]`
-
-**S11 — User management**
-
-Show user search, role/status filters and pagination where available.
-
-Requirements: FR-ADM-02, FR-ADM-03.
-
-`[Insert Screenshot S11]`
-
-**S12 — User details and sessions**
-
-Show an individual user's administrative details and available session-management actions.
-
-Requirements: FR-ADM-04, FR-ADM-08.
-
-`[Insert Screenshot S12]`
-
-**S13 — Ban and unban**
-
-Show the ban interface and the resulting banned state of an eligible test account.
-
-Requirements: FR-ADM-06, FR-ADM-07.
-
-`[Insert Screenshot S13]`
-
-**S14 — Content and group moderation**
-
-Show the moderation interface and available article/group management actions. Only show bulk actions if they are actually implemented.
-
-Requirements: FR-ADM-09, FR-ADM-10, FR-ADM-11, FR-ADM-12.
-
-`[Insert Screenshot S14]`
-
-**S15 — Activity and audit log**
-
-Show real audit records produced by the administrative actions performed during testing.
-
-Requirement: FR-ADM-13.
-
-`[Insert Screenshot S15]`
-
-**S16 — Security view**
-
-Show available failed-login security information. Do not expose unnecessary personal information or real IP addresses in the submitted screenshot.
-
-Requirement: FR-ADM-14.
-
-`[Insert Screenshot S16]`
-
-**S17 — CSV export**
-
-Show the export operation and an opened CSV file containing the exported data.
-
-Requirement: FR-ADM-15.
-
-`[Insert Screenshot S17]`
-
-## D4. Deployment
-
-**S18 — Vercel frontend deployment**
-
-Show the production deployment and frontend domain in Vercel.
-
-`[Insert Screenshot S18]`
-
-**S19 — Backend deployment configuration**
-
-Show the actual backend deployment project and configured environment variable names. Hide all secret values.
-
-`[Insert Screenshot S19]`
-
-**S20 — Live API documentation**
-
-Show the deployed FastAPI documentation page.
-
-`[Insert Screenshot S20]`
-
-## D5. Tests
-
-**S21 — Automated test results**
-
-Show the terminal output of the actual automated test run, including the test names and final result.
-
-`[Insert Screenshot S21]`
-
----
-
-# Part E. Project Management and Conclusion
-
-## E1. How to Run and Test
+## D1. How to Run and Test
 
 This section describes how another developer can install and run DocHub locally.
 
@@ -1703,7 +1516,7 @@ The application should be tested with separate accounts representing the two glo
 
 The test account user IDs and passwords are provided only in the PDF report appendix. They must not be committed to the GitHub repository.
 
-## E2. GitHub Work
+## D2. GitHub Work
 
 The project source code is maintained in the GitHub repository.
 
@@ -1715,34 +1528,30 @@ The development workflow uses issues, feature branches, commits, and pull reques
 
 **Table: GitHub issues and pull requests**
 
-| Feature                | Issue link            | Pull request link  | What it delivered                                       |
-| ---------------------- | --------------------- | ------------------ | ------------------------------------------------------- |
-| Documentation frontend | `[Insert issue link]` | `[Insert PR link]` | React frontend and documentation interface              |
-| Backend CRUD           | `[Insert issue link]` | `[Insert PR link]` | FastAPI endpoints and database operations               |
-| Authentication         | `[Insert issue link]` | `[Insert PR link]` | Registration, login and token-based authentication      |
-| RBAC                   | `[Insert issue link]` | `[Insert PR link]` | Global role checks, ownership and permission validation |
-| Groups                 | `[Insert issue link]` | `[Insert PR link]` | Group and membership functionality                      |
-| Admin dashboard        | `[Insert issue link]` | `[Insert PR link]` | Administrative management and moderation                |
-| Audit and security     | `[Insert issue link]` | `[Insert PR link]` | Audit logging, session management and security features |
-| Deployment             | `[Insert issue link]` | `[Insert PR link]` | Production frontend and backend integration             |
+| Feature                | Issue link                                            | Pull request link                                    | What it delivered                                       |
+| ---------------------- | ----------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------- |
+| Documentation frontend | `https://github.com/sadmansakibornob/DocHub/issues/4` | `https://github.com/sadmansakibornob/DocHub/pull/8`  | React frontend and documentation interface              |
+| Backend CRUD           | `https://github.com/sadmansakibornob/DocHub/issues/9` | `https://github.com/sadmansakibornob/DocHub/pull/7`  | FastAPI endpoints and database operations               |
+| Authentication         | `https://github.com/sadmansakibornob/DocHub/issues/9` | `https://github.com/sadmansakibornob/DocHub/pull/10` | Registration, login and token-based authentication      |
+| RBAC                   | `https://github.com/sadmansakibornob/DocHub/issues/9` | `https://github.com/sadmansakibornob/DocHub/pull/10` | Global role checks, ownership and permission validation |
 
 ### Contribution summary
 
 Describe your actual contribution using the GitHub commit history.
 
-| Work area      | Contribution                                                      |
-| -------------- | ----------------------------------------------------------------- |
-| Frontend       | `[Describe the pages, components and services you implemented]`   |
-| Backend        | `[Describe the routes, repositories and schemas you implemented]` |
-| Authentication | `[Describe your actual authentication implementation]`            |
-| Authorization  | `[Describe your actual RBAC and permission work]`                 |
-| Administration | `[Describe your admin dashboard and backend work]`                |
-| Deployment     | `[Describe deployment and configuration work]`                    |
-| Testing        | `[Describe tests you wrote and executed]`                         |
+| Work area          | Contribution                                                                                                                                                                                                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Frontend**       | Developed the React and TypeScript frontend using Vite and Tailwind CSS. Implemented the home page, registration and login pages, dashboards, article listing, article details, and article creation and editing interfaces. Integrated frontend services with the backend API.                        |
+| **Backend**        | Developed the FastAPI backend and REST API endpoints. Implemented route handlers, repository functions, request and response schemas, and database integration with Supabase PostgreSQL for users, articles, categories, groups, and related operations.                                               |
+| **Authentication** | Implemented JWT-based authentication using HS256. Worked on access-token generation and verification, token expiration, refresh-token handling through an HttpOnly cookie, session management, logout, password-related operations, and account-status validation.                                     |
+| **Authorization**  | Implemented role-based access control (RBAC) and permission checks for protected API endpoints. Added authorization checks for article ownership, group membership, and administrative operations to prevent unauthorized access.                                                                      |
+| **Administration** | Developed administrative functionality for managing users, changing user roles, banning accounts, revoking user sessions, and exporting user information as CSV. Implemented corresponding administrative frontend functionality.                                                                      |
+| **Deployment**     | Configured the project for deployment using Vercel. Worked on frontend and backend deployment configuration, API routing, environment variables, and production application setup. Used Supabase as the database service.                                                                              |
+| **Testing**        | Created and executed backend tests using pytest. Tested authentication and token security, invalid login, article ownership restrictions, group permissions, administrative operations, article creation, and CSV export. Worked on improving test coverage for authentication and session management. |
 
 Add the relevant commit hashes and dates for your work. Do not claim work completed by another team member as your own.
 
-## E3. Limitations
+## D3. Limitations
 
 The following areas should be reviewed and reported according to the final deployed application.
 
@@ -1759,7 +1568,7 @@ The following areas should be reviewed and reported according to the final deplo
 
 Replace this list with the exact limitations observed during final testing. Remove any item that is not a real limitation.
 
-## E4. Future Work
+## D4. Future Work
 
 The following improvements are possible future development priorities.
 
@@ -1774,7 +1583,7 @@ The following improvements are possible future development priorities.
 | 7        | Add production monitoring           | Detect failures and performance issues                 |
 | 8        | Improve accessibility               | Make the platform easier to use for more people        |
 
-## E5. Sources, Libraries and Tools
+## D5. Sources, Libraries and Tools
 
 **Table: Sources, libraries and tools**
 
@@ -1797,7 +1606,7 @@ The following improvements are possible future development priorities.
 | GitHub                              | https://docs.github.com/                                                  | Repository and collaboration                                                                             |
 | OWASP                               | https://owasp.org/www-project-application-security-verification-standard/ | Application security guidance                                                                            |
 | RFC 7519                            | https://www.rfc-editor.org/rfc/rfc7519                                    | JWT specification                                                                                        |
-| Visual Studio Code / VSCodium / Zed | `[Insert tools actually used]`                                            | Source-code editing                                                                                      |
+| Visual Studio Code / VSCodium / Zed | Zed                                                                       | Source-code editing                                                                                      |
 | Browser Developer Tools             | Browser documentation                                                     | Network inspection and debugging                                                                         |
 | ChatGPT                             | https://chatgpt.com/                                                      | Assistance with technical explanations, documentation structure, debugging guidance, and report drafting |
 
@@ -1818,17 +1627,3 @@ The project focuses on documentation management, authentication, authorization, 
 The development process also provided practical experience with REST API design, database relationships, JWT authentication, backend security, frontend-backend integration, version control, and deployment.
 
 Further work can improve automated testing, session security, monitoring, and collaboration features. Overall, DocHub demonstrates the application of web development concepts and software engineering practices in a practical full-stack project.
-
----
-
-# Appendix — PDF Only
-
-The following information must be included only in the submitted PDF, not in the GitHub Markdown file:
-
-- Admin test account email or user ID.
-- Admin test account password.
-- Normal user test account email or user ID.
-- Normal user test account password.
-- Any additional evaluator instructions needed to access the deployed application.
-
-Do not include real production credentials or secret keys. Use dedicated test accounts and change their passwords after evaluation if necessary.
