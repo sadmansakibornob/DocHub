@@ -22,6 +22,7 @@ import AppShell from "../components/layout/AppShell";
 import adminService, {
   type AdminStats,
   type ArticleStatus,
+  type FailedLogin,
 } from "../services/adminService";
 import type { User, UserRole } from "../types/user";
 import type { Article } from "../types/article";
@@ -45,7 +46,7 @@ export default function AdminDashboard({
   const [articles, setArticles] = useState<Article[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
-  const [security, setSecurity] = useState<any>(null);
+  const [security, setSecurity] = useState<FailedLogin[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
 
@@ -64,7 +65,6 @@ export default function AdminDashboard({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Tracks which article is currently being updated.
   const [updatingArticleId, setUpdatingArticleId] = useState<number | null>(
     null,
   );
@@ -152,7 +152,8 @@ export default function AdminDashboard({
     setLoading(true);
 
     try {
-      setSecurity(await adminService.failedLogins());
+      const attempts = await adminService.failedLogins();
+      setSecurity(attempts);
     } catch {
       setError("Unable to load security events.");
     } finally {
@@ -259,7 +260,6 @@ export default function AdminDashboard({
     }
   }
 
-  // Update an article's publication status.
   async function updateArticleStatus(
     article: Article,
     newStatus: ArticleStatus,
@@ -272,7 +272,6 @@ export default function AdminDashboard({
     try {
       await adminService.updateArticleStatus(article.id, newStatus);
 
-      // Update the displayed article without reloading the entire dashboard.
       setArticles((current) =>
         current.map((item) =>
           item.id === article.id ? { ...item, status: newStatus } : item,
@@ -318,6 +317,22 @@ export default function AdminDashboard({
     ["activity", "Audit log", Layers3],
     ["security", "Security", ShieldAlert],
   ];
+
+  // Security statistics are derived from the actual API array.
+  const securityByIp = security.reduce<Record<string, number>>((acc, item) => {
+    const ip = item.ip_address || "Unknown IP";
+    acc[ip] = (acc[ip] || 0) + 1;
+    return acc;
+  }, {});
+
+  const securityByAccount = security.reduce<Record<string, number>>(
+    (acc, item) => {
+      const email = item.email || "Unknown account";
+      acc[email] = (acc[email] || 0) + 1;
+      return acc;
+    },
+    {},
+  );
 
   const content = (
     <div className="space-y-6">
@@ -682,7 +697,6 @@ export default function AdminDashboard({
             </button>
           </div>
 
-          {/* Article list */}
           <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -814,7 +828,6 @@ export default function AdminDashboard({
             </div>
           </div>
 
-          {/* Shared groups */}
           <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold text-white">Shared groups</h3>
@@ -975,19 +988,25 @@ export default function AdminDashboard({
                 Failed logins by IP
               </h3>
 
-              {Object.entries(security?.by_ip || {})
-                .sort((a: any, b: any) => b[1] - a[1])
-                .map(([ip, n]) => (
+              {Object.entries(securityByIp)
+                .sort((a, b) => b[1] - a[1])
+                .map(([ip, count]) => (
                   <div
                     key={ip}
                     className="flex justify-between border-b border-white/6 py-3 text-sm"
                   >
                     <span className="text-slate-300">{ip}</span>
                     <span className="font-semibold text-amber-300">
-                      {String(n)}
+                      {count}
                     </span>
                   </div>
                 ))}
+
+              {!Object.keys(securityByIp).length && (
+                <p className="text-sm text-slate-500">
+                  No failed login attempts.
+                </p>
+              )}
             </div>
 
             <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
@@ -996,46 +1015,101 @@ export default function AdminDashboard({
                 Failed logins by account
               </h3>
 
-              {Object.entries(security?.by_account || {})
-                .sort((a: any, b: any) => b[1] - a[1])
-                .map(([email, n]) => (
+              {Object.entries(securityByAccount)
+                .sort((a, b) => b[1] - a[1])
+                .map(([email, count]) => (
                   <div
                     key={email}
                     className="flex justify-between border-b border-white/6 py-3 text-sm"
                   >
                     <span className="text-slate-300">{email}</span>
-                    <span className="font-semibold text-rose-300">
-                      {String(n)}
-                    </span>
+                    <span className="font-semibold text-rose-300">{count}</span>
                   </div>
                 ))}
+
+              {!Object.keys(securityByAccount).length && (
+                <p className="text-sm text-slate-500">
+                  No failed login attempts.
+                </p>
+              )}
             </div>
           </div>
 
           <div className="rounded-2xl border border-white/8 bg-[#11151c] p-5">
-            <h3 className="mb-3 font-semibold text-white">
-              Recent failed login attempts
-            </h3>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold text-white">
+                Recent failed login attempts
+              </h3>
 
-            <div className="divide-y divide-white/6">
-              {(security?.events || []).map((e: any, i: number) => (
-                <div
-                  key={i}
-                  className="flex flex-wrap justify-between gap-2 py-3 text-xs"
-                >
-                  <span className="text-slate-300">
-                    {e.email || "Unknown account"} ·{" "}
-                    {e.ip_address || "Unknown IP"}
-                  </span>
+              <span className="rounded-full bg-rose-400/10 px-3 py-1 text-xs font-semibold text-rose-300">
+                {security.length} attempts
+              </span>
 
-                  <span className="text-slate-500">
-                    {e.attempted_at
-                      ? new Date(e.attempted_at).toLocaleString()
-                      : "—"}
-                  </span>
-                </div>
-              ))}
+              <button
+                type="button"
+                onClick={() => void loadSecurity()}
+                disabled={loading}
+                className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 hover:bg-white/5 disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={13}
+                  className={loading ? "animate-spin" : ""}
+                />
+                Refresh
+              </button>
             </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-sm">
+                <thead className="border-b border-white/8 text-xs uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="p-3">Email</th>
+                    <th className="p-3">IP address</th>
+                    <th className="p-3">Failure reason</th>
+                    <th className="p-3">Browser / device</th>
+                    <th className="p-3">Timestamp</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-white/6">
+                  {security.map((attempt) => (
+                    <tr key={attempt.id} className="hover:bg-white/[.02]">
+                      <td className="p-3 text-slate-300">{attempt.email}</td>
+
+                      <td className="p-3 text-xs text-slate-400">
+                        {attempt.ip_address || "Unknown"}
+                      </td>
+
+                      <td className="p-3 text-xs text-rose-300">
+                        {attempt.failure_reason || "Not recorded"}
+                      </td>
+
+                      <td className="max-w-[220px] truncate p-3 text-xs text-slate-500">
+                        {attempt.user_agent || "Unknown"}
+                      </td>
+
+                      <td className="whitespace-nowrap p-3 text-xs text-slate-500">
+                        {attempt.created_at
+                          ? new Date(attempt.created_at).toLocaleString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {!loading && !security.length && (
+              <p className="p-6 text-center text-sm text-slate-500">
+                No failed login attempts recorded.
+              </p>
+            )}
+
+            {loading && (
+              <p className="p-5 text-center text-sm text-slate-500">
+                Loading security events…
+              </p>
+            )}
           </div>
         </>
       )}
