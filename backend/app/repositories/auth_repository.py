@@ -56,8 +56,8 @@ def count_failed_attempts_by_email(email: str, since: str) -> int:
         supabase.table("login_attempts")
         .select("id", count="exact")
         .eq("email", email)
-        .eq("succeeded", False)
-        .gte("attempted_at", since)
+        .eq("success", False)
+        .gte("created_at", since)
         .execute()
     )
 
@@ -65,14 +65,19 @@ def count_failed_attempts_by_email(email: str, since: str) -> int:
 
 
 def count_failed_attempts_by_ip(ip_address: str | None, since: str) -> int:
-    response = (
+    query = (
         supabase.table("login_attempts")
         .select("id", count="exact")
-        .eq("ip_address", ip_address)
-        .eq("succeeded", False)
-        .gte("attempted_at", since)
-        .execute()
+        .eq("success", False)
+        .gte("created_at", since)
     )
+
+    if ip_address is None:
+        query = query.is_("ip_address", "null")
+    else:
+        query = query.eq("ip_address", ip_address)
+
+    response = query.execute()
 
     return response.count or 0
 
