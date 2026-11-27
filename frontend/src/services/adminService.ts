@@ -22,6 +22,17 @@ export interface AdminStats {
   new_groups_7d: number;
 }
 
+export interface FailedLogin {
+  id: number;
+  user_id: string | null;
+  email: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  success: boolean;
+  failure_reason: string | null;
+  created_at: string;
+}
+
 const adminService = {
   // Dashboard statistics
   async dashboard() {
@@ -126,8 +137,8 @@ const adminService = {
   },
 
   // Security events
-  async failedLogins() {
-    return (await api.get("/admin/security/failed-logins")).data;
+  async failedLogins(): Promise<FailedLogin[]> {
+    return (await api.get<FailedLogin[]>("/admin/security/failed-logins")).data;
   },
 
   // CSV export
