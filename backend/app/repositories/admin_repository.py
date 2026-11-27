@@ -7,7 +7,9 @@ def now_utc():
     return datetime.now(timezone.utc).isoformat()
 
 
+# --------------------------------------------------
 # USER QUERIES
+# --------------------------------------------------
 
 
 def get_user(user_id: str):
@@ -95,7 +97,9 @@ def revoke_user_sessions(user_id: str):
     return len(result.data or [])
 
 
+# --------------------------------------------------
 # DASHBOARD QUERIES
+# --------------------------------------------------
 
 
 def count_rows(table: str):
@@ -136,7 +140,9 @@ def get_dashboard_stats():
     }
 
 
+# --------------------------------------------------
 # ARTICLE QUERIES
+# --------------------------------------------------
 
 
 def get_articles(status=None, limit=50, offset=0):
@@ -187,7 +193,9 @@ def delete_article(article_id: int):
     return supabase.table("articles").delete().eq("id", article_id).execute()
 
 
+# --------------------------------------------------
 # GROUP QUERIES
+# --------------------------------------------------
 
 
 def get_groups(limit=50, offset=0):
@@ -211,7 +219,9 @@ def delete_group(group_id: str):
     return supabase.table("groups").delete().eq("id", group_id).execute()
 
 
+# --------------------------------------------------
 # AUDIT QUERIES
+# --------------------------------------------------
 
 
 def get_audit_logs(
@@ -240,7 +250,9 @@ def get_audit_logs(
     }
 
 
+# --------------------------------------------------
 # SECURITY QUERIES
+# --------------------------------------------------
 
 
 def get_failed_logins(limit=100):
@@ -256,7 +268,9 @@ def get_failed_logins(limit=100):
     return result.data or []
 
 
+# --------------------------------------------------
 # EXPORT QUERIES
+# --------------------------------------------------
 
 
 def get_export_rows(
