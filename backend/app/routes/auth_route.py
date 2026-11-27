@@ -35,8 +35,11 @@ COOKIE = "dochub_refresh"
 
 def _peppered(password: str) -> str:
     """
-    Apply a server-side HMAC pepper before Supabase hashes the password.
-    Keep this consistent across signup, login and password changes.
+    Apply a server-side HMAC pepper before Supabase hashes
+    the password.
+
+    Keep this consistent across signup, login and password
+    changes.
     """
     return hmac.new(
         settings.password_pepper.encode(),
@@ -143,6 +146,36 @@ def _new_session(
         "expires_in": min(settings.access_token_minutes, 15) * 60,
         "user": user,
     }
+
+
+# --------------------------------------------------
+# LOGIN ATTEMPT RECORDING
+# --------------------------------------------------
+
+
+def _record_login_attempt(
+    email: str,
+    ip: str | None,
+    request: Request,
+    success: bool,
+    user_id: str | None = None,
+) -> None:
+    """
+    Record a login attempt using the canonical database
+    column: success.
+
+    created_at is populated by the database default.
+    """
+
+    auth_repo.record_login_attempt(
+        {
+            "user_id": user_id,
+            "email": email,
+            "ip_address": ip,
+            "user_agent": request.headers.get("user-agent", "")[:500],
+            "success": success,
+        }
+    )
 
 
 # --------------------------------------------------
@@ -263,6 +296,8 @@ def login(
 
     client = new_auth_client()
 
+    # Authenticate with Supabase.
+    # Only failures in this stage count as invalid credentials.
     try:
         result = client.auth.sign_in_with_password(
             {
@@ -272,49 +307,68 @@ def login(
         )
 
         if not result.user or not result.session:
-            raise ValueError("No session")
-
-        user = _profile(str(result.user.id))
-
-        auth_repo.record_login_attempt(
-            {
-                "email": email,
-                "ip_address": ip,
-                "user_agent": request.headers.get("user-agent", "")[:500],
-                "succeeded": True,
-            }
-        )
-
-        data = _new_session(
-            user,
-            result.session.refresh_token,
-            request,
-            response,
-        )
-
-        audit(user["id"], "auth.login", request, "session")
-
-        return data
-
-    except HTTPException:
-        raise
+            raise ValueError("No authentication session returned")
 
     except Exception as exc:
-        auth_repo.record_login_attempt(
-            {
-                "email": email,
-                "ip_address": ip,
-                "user_agent": request.headers.get("user-agent", "")[:500],
-                "succeeded": False,
-            }
-        )
+        log.warning("Login authentication failed for %s", email)
 
-        audit(None, "auth.login.failed", request, "account", email)
+        try:
+            _record_login_attempt(
+                email=email,
+                ip=ip,
+                request=request,
+                success=False,
+            )
+        except Exception:
+            log.exception("Could not record failed login attempt")
+
+        try:
+            audit(
+                None,
+                "auth.login.failed",
+                request,
+                "account",
+                email,
+            )
+        except Exception:
+            log.exception("Could not record failed login audit event")
 
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password",
         ) from exc
+
+    # Authentication succeeded.
+    # Profile, session and audit failures must not be
+    # classified as incorrect password attempts.
+    user = _profile(str(result.user.id))
+
+    try:
+        _record_login_attempt(
+            email=email,
+            ip=ip,
+            request=request,
+            success=True,
+            user_id=user["id"],
+        )
+    except Exception:
+        log.exception("Could not record successful login attempt")
+
+    data = _new_session(
+        user,
+        result.session.refresh_token,
+        request,
+        response,
+    )
+
+    audit(
+        user["id"],
+        "auth.login",
+        request,
+        "session",
+    )
+
+    return data
 
 
 # --------------------------------------------------
