@@ -69,7 +69,7 @@ The project was extended beyond its initial CRUD functionality with additional a
 | Vercel Frontend     | `https://dochub-mauve.vercel.app `           |
 | Backend API         | `https://dochub-mauve.vercel.app/api`        |
 | API Documentation   | `https://dochub-mauve.vercel.app/api/docs`   |
-| Video Demonstration | `[Insert video link]`                        |
+| Video Demonstration | `https://youtu.be/tIeMKEugI-o`               |
 
 Test account credentials are intentionally excluded from this Markdown file. They are provided separately in the PDF appendix.
 
